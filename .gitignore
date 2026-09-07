@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

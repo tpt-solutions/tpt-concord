@@ -1,0 +1,568 @@
+TPT Concord — Design Specification
+
+Status
+
+Design specification / architecture proposal.
+
+1. Purpose
+
+tpt-concord is a pure-Rust, MIT-licensed framework for representing specifications, claims, evidence, conformance and assurance as first-class machine-readable objects.
+
+It is not a theorem prover.
+
+It is not a replacement for Lean, Telos, Eidos, model checkers, property testing or fuzzing.
+
+Its job is to connect them.
+
+The central question is:
+
+Given an implementation, exactly what do we know about it, why do we know it, under which assumptions, and what remains unproven?
+
+2. Problem
+
+Verification evidence is fragmented.
+
+A project may have:
+
+formal proofs
+
+executable models
+
+tests
+
+fuzz campaigns
+
+model checking
+
+differential testing
+
+benchmarks
+
+protocol conformance tests
+
+but there is often no machine-readable relationship between:
+
+property
+   ↓
+specification
+   ↓
+implementation
+   ↓
+proof/test/model evidence
+   ↓
+release decision
+
+This is especially important for AI-assisted development.
+
+The objective is not to make AI trustworthy.
+
+The objective is to make AI-generated implementations independently accountable to specifications and evidence.
+
+3. Novel primitives
+
+3.1 Claim
+
+A Claim is a precise statement about a system.
+
+Example:
+
+Claim:
+Archon WAL recovery preserves committed transactions
+under crash model X.
+
+3.2 Obligation
+
+An Obligation is something that must be established before a Claim can be accepted.
+
+3.3 Evidence
+
+Evidence is a machine-addressable object demonstrating an obligation.
+
+Examples:
+
+Lean theorem
+
+Telos proof
+
+Eidos proof
+
+model-check result
+
+conformance trace
+
+simulation
+
+property-test campaign
+
+fuzz campaign
+
+differential comparison
+
+3.4 Assurance Graph
+
+Claims, obligations and evidence form a directed graph.
+
+This answers:
+
+Why is this claim trusted?
+
+without collapsing different evidence types into one vague "verified" label.
+
+3.5 Conformance Relation
+
+A formal relationship between an implementation and an executable specification/model.
+
+3.6 Counterexample
+
+A first-class object representing the smallest known violation of a specification or invariant.
+
+3.7 Assurance Level
+
+An explicit classification of what kind of evidence exists.
+
+4. Core assurance model
+
+Specification
+     ↓
+Obligations
+     ↓
+Reference Model
+     ↓
+Implementation
+     ↓
+Conformance
+     ↓
+Evidence
+     ↓
+Claim
+     ↓
+Release Gate
+
+Evidence may be composed:
+
+Claim Z
+ ├── Claim X
+ │    └── Lean proof
+ ├── Claim Y
+ │    └── Telos proof
+ └── Conformance result
+      └── 18,421 traces
+
+5. Crate layout
+
+tpt-concord-core
+
+Core types:
+
+SpecificationID
+
+ClaimID
+
+ObligationID
+
+EvidenceID
+
+ModelID
+
+ImplementationID
+
+TraceID
+
+assurance metadata
+
+assumptions
+
+scopes
+
+versions
+
+tpt-concord-spec
+
+Specification representation.
+
+Provides:
+
+preconditions
+
+postconditions
+
+invariants
+
+state transitions
+
+effects
+
+resource bounds
+
+permitted behaviours
+
+tpt-concord-model
+
+Executable reference models.
+
+Provides:
+
+deterministic state machines
+
+abstract models
+
+transition functions
+
+reference semantics
+
+tpt-concord-trace
+
+Canonical execution traces.
+
+Provides:
+
+event identity
+
+causal ordering
+
+normalization
+
+replay
+
+divergence comparison
+
+tpt-concord-check
+
+Conformance engine.
+
+Provides:
+
+implementation/model comparison
+
+invariant checking
+
+refinement checking
+
+deviation classification
+
+counterexample generation
+
+tpt-concord-property
+
+Property-based testing derived from specifications.
+
+Provides:
+
+input generation
+
+stateful generation
+
+invariant-aware shrinking
+
+tpt-concord-fuzz
+
+Specification-driven fuzzing.
+
+Provides:
+
+state-transition-aware fuzzing
+
+corpus management
+
+invariant checks
+
+reproducible failures
+
+tpt-concord-diff
+
+Differential verification.
+
+Compares:
+
+implementation vs model
+
+implementation vs implementation
+
+version vs version
+
+tpt-concord-proof
+
+Proof-obligation abstraction.
+
+Adapters for:
+
+Lean
+
+Telos
+
+Eidos
+
+external proof systems
+
+The core does not trust an adapter's word; it records independently checkable proof artifacts/results.
+
+tpt-concord-sim
+
+Deterministic simulation.
+
+Provides:
+
+virtual time
+
+controlled scheduling
+
+fault injection
+
+state-space exploration
+
+replay
+
+tpt-concord-contract
+
+Optional runtime contracts.
+
+Provides:
+
+precondition checks
+
+postcondition checks
+
+invariant checks
+
+debug/release instrumentation
+
+Runtime contracts are enforcement, not proof.
+
+tpt-concord-evidence
+
+Evidence bundles.
+
+Stores:
+
+proof artifacts
+
+model-check results
+
+traces
+
+simulations
+
+fuzz campaigns
+
+test results
+
+toolchain identities
+
+assumptions
+
+tpt-concord-release
+
+Release gate.
+
+Provides:
+
+required obligations
+
+evidence completeness
+
+validity checking
+
+policy enforcement
+
+release decisions
+
+tpt-concord-cli
+
+Conceptual commands:
+
+spec
+
+model
+
+check
+
+prove
+
+simulate
+
+fuzz
+
+diff
+
+evidence
+
+gate
+
+6. Assurance levels
+
+Concord explicitly distinguishes:
+
+specified
+
+type_checked
+
+model_checked
+
+property_tested
+
+fuzz_tested
+
+differentially_checked
+
+partially_proven
+
+fully_proven
+
+A project must never imply that a fuzz campaign constitutes a mathematical proof.
+
+7. AI trust model
+
+AI is an untrusted proposer.
+
+It may generate:
+
+implementation
+
+tests
+
+specifications
+
+proof scripts
+
+model refinements
+
+candidate invariants
+
+None of those are trusted merely because an AI generated them.
+
+The acceptance pipeline is:
+
+AI proposal
+    ↓
+compiler/type system
+    ↓
+specification obligations
+    ↓
+formal proof/model checking
+    ↓
+implementation conformance
+    ↓
+property testing
+    ↓
+fuzzing
+    ↓
+evidence validation
+    ↓
+release gate
+
+This turns AI from a trust boundary into a productivity tool.
+
+8. New relationship: proof + testing
+
+Concord must explicitly support a layered assurance strategy.
+
+Formal methods establish properties that can be proven.
+
+Simulation explores behaviours that are difficult to reason about analytically.
+
+Property testing explores broad input spaces.
+
+Fuzzing searches for unexpected counterexamples.
+
+Differential testing detects semantic disagreement.
+
+These are complementary evidence types.
+
+The system should preserve their distinctions.
+
+9. Counterexample lifecycle
+
+A failure should become an addressable object:
+
+Counterexample
+ ├── specification
+ ├── implementation
+ ├── input/state
+ ├── trace
+ ├── environment
+ └── observed violation
+
+A fixed implementation can then be checked against the exact counterexample.
+
+10. Non-goals
+
+Concord is not:
+
+Lean
+
+a theorem prover
+
+a fuzzer
+
+a model checker
+
+a test framework
+
+a replacement for Telos
+
+a replacement for Eidos
+
+It is the evidence and conformance layer connecting those systems.
+
+11. Initial milestone
+
+Core assurance graph.
+
+Specification model.
+
+Executable state machine.
+
+Canonical traces.
+
+Implementation/model conformance.
+
+Counterexamples.
+
+Evidence manifests.
+
+Deterministic replay.
+
+Release gate.
+
+First prove value against an existing TPT subsystem such as Archon WAL/transaction behaviour.
+
+12. TPT integration
+
+Concord should eventually provide assurance infrastructure for:
+
+Archon
+
+Boxcar
+
+Keystone
+
+Fabric
+
+Repro
+
+WASM
+
+cryptography
+
+networking
+
+scientific/engineering systems
+
+Existing specialised verification systems remain authoritative for their proofs.
+
+13. Key architectural principle
+
+Trust should be compositional and inspectable.
+
+A release should be able to answer:
+
+What do we claim?
+Why do we claim it?
+What assumptions does it depend on?
+What evidence supports it?
+Which parts are proven?
+Which are model-checked?
+Which are tested?
+Which remain unknown?
+
+That is the purpose of Concord.
