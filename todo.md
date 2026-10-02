@@ -11,14 +11,14 @@ License: dual **MIT OR Apache-2.0**, copyright TPT Solutions.
 ## Phase 0 — Project Setup & Licensing
 
 - [x] Initialize git repository
-- [ ] Create Cargo workspace `Cargo.toml` with members for all crates (see §5 list below)
+- [x] Create Cargo workspace `Cargo.toml` with members for all crates (see §5 list below) — members declared; only 7 stub crates exist so far (cli, contract, diff, fuzz, proof, property, sim)
 - [x] Add `.gitignore` (Rust: `/target`, editor/OS cruft)
-- [ ] Add `LICENSE-MIT`
-- [ ] Add `LICENSE-APACHE`
-- [ ] Add SPDX `MIT OR Apache-2.0` license headers/policy to crate manifests
-- [ ] Write `README.md` (project purpose, from spec §1–2)
-- [ ] Write `CONTRIBUTING.md`
-- [ ] Set up CI pipeline (fmt, clippy, test, build workspace)
+- [x] Add `LICENSE-MIT`
+- [x] Add `LICENSE-APACHE`
+- [x] Add SPDX `MIT OR Apache-2.0` license headers/policy to crate manifests
+- [x] Write `README.md` (project purpose, from spec §1–2)
+- [x] Write `CONTRIBUTING.md`
+- [x] Set up CI pipeline (fmt, clippy, test, build workspace)
 
 ## Phase 1 — Initial Milestone (spec §11): Core Assurance Foundation
 
