@@ -1,6 +1,8 @@
 /target
 **/*.rs.bk
-Cargo.lock
+
+# NOTE: Cargo.lock IS committed for this workspace — reproducible evidence
+# bundles and CI builds depend on the exact dependency graph.
 
 # Editor / OS
 .vscode/

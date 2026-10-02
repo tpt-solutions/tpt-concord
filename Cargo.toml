@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/spec",
+    "crates/model",
+    "crates/trace",
+    "crates/check",
+    "crates/property",
+    "crates/fuzz",
+    "crates/diff",
+    "crates/proof",
+    "crates/sim",
+    "crates/contract",
+    "crates/evidence",
+    "crates/release",
+    "crates/cli",
+    "crates/pilot-archon-wal",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+keywords = ["verification", "assurance", "conformance", "specification", "evidence"]
+categories = ["development-tools", "development-tools::testing"]
+
+[workspace.dependencies]
+# Internal crates
+tpt-concord-core = { path = "crates/core" }
+tpt-concord-spec = { path = "crates/spec" }
+tpt-concord-model = { path = "crates/model" }
+tpt-concord-trace = { path = "crates/trace" }
+tpt-concord-check = { path = "crates/check" }
+tpt-concord-property = { path = "crates/property" }
+tpt-concord-fuzz = { path = "crates/fuzz" }
+tpt-concord-diff = { path = "crates/diff" }
+tpt-concord-proof = { path = "crates/proof" }
+tpt-concord-sim = { path = "crates/sim" }
+tpt-concord-contract = { path = "crates/contract" }
+tpt-concord-evidence = { path = "crates/evidence" }
+tpt-concord-release = { path = "crates/release" }
+
+# External dependencies
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+sha2 = "0.10"
+hex = "0.4"
+
+# The workspace ships a lockfile for reproducible evidence: CI and release
+# builds must see the exact dependency graph recorded in evidence bundles.

@@ -1,0 +1,13 @@
+[package]
+name = "tpt-concord-fuzz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "TPT Concord: fuzz crate (see spec.txt)"
+
+[dependencies]
+tpt-concord-core = { workspace = true }
