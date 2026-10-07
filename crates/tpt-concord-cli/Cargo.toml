@@ -1,0 +1,32 @@
+[package]
+name = "tpt-concord-cli"
+description = "Concord command line: spec, model, check, prove, simulate, fuzz, diff, evidence, gate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["cli", "verification", "conformance", "assurance", "release-gate"]
+categories = ["command-line-utilities", "development-tools::testing"]
+
+[[bin]]
+name = "concord"
+path = "src/main.rs"
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-spec = { workspace = true }
+tpt-concord-model = { workspace = true }
+tpt-concord-trace = { workspace = true }
+tpt-concord-check = { workspace = true }
+tpt-concord-property = { workspace = true }
+tpt-concord-fuzz = { workspace = true }
+tpt-concord-diff = { workspace = true }
+tpt-concord-proof = { workspace = true }
+tpt-concord-sim = { workspace = true }
+tpt-concord-evidence = { workspace = true }
+tpt-concord-release = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }

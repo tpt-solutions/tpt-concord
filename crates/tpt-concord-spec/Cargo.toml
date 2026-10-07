@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-spec"
+description = "Specification representation: pre/postconditions, invariants, transitions, effects, bounds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["specification", "invariants", "contracts", "verification", "formal-methods"]
+categories = ["development-tools", "development-tools::testing"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

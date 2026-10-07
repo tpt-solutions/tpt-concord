@@ -1,0 +1,23 @@
+[package]
+name = "tpt-concord-assurance"
+description = "Assurance infrastructure for TPT ecosystem subsystems: Archon, Boxcar, Keystone, Fabric, Repro, WASM, crypto, networking, scientific/engineering (spec section 12)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["assurance", "tpt", "claims", "verification", "subsystems"]
+categories = ["development-tools", "development-tools::testing"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-spec = { workspace = true }
+tpt-concord-model = { workspace = true }
+tpt-concord-trace = { workspace = true }
+tpt-concord-release = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

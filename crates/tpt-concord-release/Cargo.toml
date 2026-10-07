@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-release"
+description = "Release gate: required obligations, evidence completeness, policy enforcement, decisions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["release-gate", "policy", "assurance", "compliance", "verification"]
+categories = ["development-tools", "development-tools::build-utils"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

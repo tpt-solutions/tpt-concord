@@ -1,0 +1,20 @@
+[package]
+name = "tpt-concord-fuzz"
+description = "Specification-driven fuzzing: state-transition-aware generation, corpus management, reproducible failures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["fuzzing", "corpus", "stateful-testing", "reproducible", "verification"]
+categories = ["development-tools::testing", "development-tools::debugging"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-model = { workspace = true }
+tpt-concord-property = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

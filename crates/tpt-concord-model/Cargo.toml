@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-model"
+description = "Executable reference models: deterministic state machines and transition tables"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["state-machine", "reference-model", "deterministic", "verification", "conformance"]
+categories = ["development-tools::testing", "data-structures"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

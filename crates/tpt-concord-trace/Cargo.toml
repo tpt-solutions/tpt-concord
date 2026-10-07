@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-trace"
+description = "Canonical traces: event identity, causal ordering, normalization, replay, divergence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["trace", "replay", "causal-ordering", "content-addressed", "verification"]
+categories = ["development-tools::debugging", "development-tools::testing"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

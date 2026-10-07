@@ -1,0 +1,23 @@
+[package]
+name = "tpt-concord-pilot-archon-wal"
+description = "Milestone pilot: Archon WAL/transaction claim + Assurance Graph end-to-end (spec section 11)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["wal", "transactions", "pilot", "assurance", "verification"]
+categories = ["development-tools::testing", "database"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-spec = { workspace = true }
+tpt-concord-model = { workspace = true }
+tpt-concord-trace = { workspace = true }
+tpt-concord-check = { workspace = true }
+tpt-concord-evidence = { workspace = true }
+tpt-concord-release = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

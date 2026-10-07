@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-diff"
+description = "Differential verification: impl vs model, impl vs impl, version vs version"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["differential-testing", "conformance", "verification", "regression", "comparison"]
+categories = ["development-tools::testing", "development-tools::debugging"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-trace = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

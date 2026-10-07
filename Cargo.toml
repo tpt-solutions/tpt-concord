@@ -1,21 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/core",
-    "crates/spec",
-    "crates/model",
-    "crates/trace",
-    "crates/check",
-    "crates/property",
-    "crates/fuzz",
-    "crates/diff",
-    "crates/proof",
-    "crates/sim",
-    "crates/contract",
-    "crates/evidence",
-    "crates/release",
-    "crates/cli",
-    "crates/pilot-archon-wal",
+    "crates/tpt-concord-core",
+    "crates/tpt-concord-spec",
+    "crates/tpt-concord-model",
+    "crates/tpt-concord-trace",
+    "crates/tpt-concord-check",
+    "crates/tpt-concord-property",
+    "crates/tpt-concord-fuzz",
+    "crates/tpt-concord-diff",
+    "crates/tpt-concord-proof",
+    "crates/tpt-concord-sim",
+    "crates/tpt-concord-contract",
+    "crates/tpt-concord-evidence",
+    "crates/tpt-concord-release",
+    "crates/tpt-concord-cli",
+    "crates/tpt-concord-pilot-archon-wal",
+    "crates/tpt-concord-assurance",
 ]
 
 [workspace.package]
@@ -24,24 +25,22 @@ edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
-keywords = ["verification", "assurance", "conformance", "specification", "evidence"]
-categories = ["development-tools", "development-tools::testing"]
 
 [workspace.dependencies]
 # Internal crates
-tpt-concord-core = { path = "crates/core" }
-tpt-concord-spec = { path = "crates/spec" }
-tpt-concord-model = { path = "crates/model" }
-tpt-concord-trace = { path = "crates/trace" }
-tpt-concord-check = { path = "crates/check" }
-tpt-concord-property = { path = "crates/property" }
-tpt-concord-fuzz = { path = "crates/fuzz" }
-tpt-concord-diff = { path = "crates/diff" }
-tpt-concord-proof = { path = "crates/proof" }
-tpt-concord-sim = { path = "crates/sim" }
-tpt-concord-contract = { path = "crates/contract" }
-tpt-concord-evidence = { path = "crates/evidence" }
-tpt-concord-release = { path = "crates/release" }
+tpt-concord-core = { path = "crates/tpt-concord-core" }
+tpt-concord-spec = { path = "crates/tpt-concord-spec" }
+tpt-concord-model = { path = "crates/tpt-concord-model" }
+tpt-concord-trace = { path = "crates/tpt-concord-trace" }
+tpt-concord-check = { path = "crates/tpt-concord-check" }
+tpt-concord-property = { path = "crates/tpt-concord-property" }
+tpt-concord-fuzz = { path = "crates/tpt-concord-fuzz" }
+tpt-concord-diff = { path = "crates/tpt-concord-diff" }
+tpt-concord-proof = { path = "crates/tpt-concord-proof" }
+tpt-concord-sim = { path = "crates/tpt-concord-sim" }
+tpt-concord-contract = { path = "crates/tpt-concord-contract" }
+tpt-concord-evidence = { path = "crates/tpt-concord-evidence" }
+tpt-concord-release = { path = "crates/tpt-concord-release" }
 
 # External dependencies
 serde = { version = "1", features = ["derive"] }
@@ -49,6 +48,7 @@ serde_json = "1"
 thiserror = "1"
 sha2 = "0.10"
 hex = "0.4"
+clap = { version = "4", features = ["derive"] }
 
 # The workspace ships a lockfile for reproducible evidence: CI and release
 # builds must see the exact dependency graph recorded in evidence bundles.

@@ -1,0 +1,22 @@
+[package]
+name = "tpt-concord-check"
+description = "Conformance engine: impl/model comparison, invariant & refinement checking, counterexamples"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["conformance", "refinement", "invariants", "counterexample", "verification"]
+categories = ["development-tools::testing", "algorithms"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-spec = { workspace = true }
+tpt-concord-model = { workspace = true }
+tpt-concord-trace = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

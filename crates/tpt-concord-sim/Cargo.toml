@@ -1,0 +1,19 @@
+[package]
+name = "tpt-concord-sim"
+description = "Deterministic simulation: virtual time, controlled scheduling, fault injection, state-space exploration, replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["simulation", "deterministic", "fault-injection", "model-checking", "verification"]
+categories = ["simulation", "development-tools::testing"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-model = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

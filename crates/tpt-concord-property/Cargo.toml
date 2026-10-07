@@ -1,0 +1,15 @@
+[package]
+name = "tpt-concord-property"
+description = "Property-based testing derived from specifications: input generation, stateful generation, invariant-aware shrinking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["property-testing", "shrinking", "stateful-testing", "generators", "verification"]
+categories = ["development-tools::testing", "algorithms"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-model = { workspace = true }

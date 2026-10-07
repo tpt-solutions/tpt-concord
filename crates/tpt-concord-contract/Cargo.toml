@@ -1,0 +1,16 @@
+[package]
+name = "tpt-concord-contract"
+description = "Optional runtime contracts: pre/postcondition and invariant checks (enforcement, not proof)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["contracts", "design-by-contract", "preconditions", "invariants", "assertions"]
+categories = ["development-tools", "rust-patterns"]
+
+[dependencies]
+tpt-concord-core = { workspace = true }
+tpt-concord-model = { workspace = true }
+thiserror = { workspace = true }
