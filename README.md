@@ -77,6 +77,7 @@ the job summary.
 ```
 concord init [dir]                            # scaffold a runnable starter project
 concord report <graph.json> --policy p.json   # plain markdown: claimed / why / unknown
+concord watch <paths>... -- <command>        # re-run a command when its inputs change
 concord schema <kind>                        # JSON Schema for spec|model|trace|graph|policy|manifest
 concord completions <shell>                   # bash, zsh, fish, powershell, elvish
 concord spec <spec.json>                      # validate a specification

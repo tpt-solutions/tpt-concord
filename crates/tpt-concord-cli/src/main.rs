@@ -15,6 +15,7 @@ mod cmd;
 mod report;
 mod scaffold;
 mod schema;
+mod watch;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -155,6 +156,23 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Re-run a concord command whenever the named files or directories change.
+    /// Everything after `--` is the command, e.g.
+    /// `concord watch graph.json policy.json evidence -- gate graph.json policy.json --bundle evidence`.
+    Watch {
+        /// Files or directories to watch (directories are scanned recursively).
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// How often to check for changes, in milliseconds.
+        #[arg(long, default_value_t = 500)]
+        interval_ms: u64,
+        /// Stop after this many runs instead of watching forever.
+        #[arg(long)]
+        max_runs: Option<usize>,
+        /// The concord command to run, after `--`.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
     /// Print a JSON Schema for a file kind, or write them all to a directory.
     Schema {
         /// Which file kind to print.
@@ -232,6 +250,17 @@ fn main() {
         } => cmd::report(&graph, policy.as_deref(), bundle.as_deref()),
         Command::Init { dir, force } => scaffold::init(&dir, force),
         Command::Schema { kind, dir } => schema::schema(kind, dir.as_deref()),
+        Command::Watch {
+            paths,
+            interval_ms,
+            max_runs,
+            command,
+        } => watch::watch(
+            &paths,
+            &command,
+            std::time::Duration::from_millis(interval_ms),
+            max_runs,
+        ),
         Command::Completions { shell } => {
             clap_complete::generate(
                 shell,

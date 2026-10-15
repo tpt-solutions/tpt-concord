@@ -559,3 +559,73 @@ fn schema_command_prints_or_writes_every_kind() {
     // Naming no kind and no directory is a usage error.
     assert_eq!(run(&["schema"]).0, 2);
 }
+
+#[test]
+fn watch_reruns_the_command_after_a_change() {
+    let dir = tmp_dir("watch");
+    let proj = dir.join("starter");
+    assert_eq!(run(&["init", proj.to_str().unwrap()]).0, 0);
+    let spec = proj.join("spec.json");
+    let spec_str = spec.to_str().unwrap().to_string();
+
+    let child = Command::new(bin())
+        .args([
+            "watch",
+            "--interval-ms",
+            "50",
+            "--max-runs",
+            "2",
+            &spec_str,
+            "--",
+            "spec",
+            &spec_str,
+        ])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("watch starts");
+
+    // Let the first run finish, then change the watched file.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let text = std::fs::read_to_string(&spec).unwrap();
+    std::fs::write(&spec, format!("{text}\n")).unwrap();
+
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(stderr.contains("--- run 2"), "{stderr}");
+    assert!(stderr.contains("--- change detected"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn watch_passes_through_exit_codes_and_refuses_recursion() {
+    let dir = tmp_dir("watch-exit");
+    let proj = dir.join("starter");
+    assert_eq!(run(&["init", proj.to_str().unwrap()]).0, 0);
+    let trace_bad = proj.join("trace-bad.json");
+    let spec = proj.join("spec.json");
+    // A single run whose command fails: watch returns that failure's code.
+    let (code, _) = run(&[
+        "watch",
+        "--max-runs",
+        "1",
+        trace_bad.to_str().unwrap(),
+        "--",
+        "check",
+        spec.to_str().unwrap(),
+        trace_bad.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1);
+    // Watching the watcher is a usage error.
+    let (code, _) = run(&[
+        "watch",
+        "--max-runs",
+        "1",
+        spec.to_str().unwrap(),
+        "--",
+        "watch",
+    ]);
+    assert_eq!(code, 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
