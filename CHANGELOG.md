@@ -4,6 +4,30 @@ All notable changes to TPT Concord are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning policy is in
 [`docs/versioning.md`](docs/versioning.md).
 
+## [Unreleased]
+
+### Added
+
+- **`concord init`** scaffolds a runnable starter project (spec, model, good/bad
+  traces, buggy implementation, assurance graph, policy, hash-verified bundle).
+- **`concord report`** renders plain markdown answering the §13 questions,
+  keeping proven / model-checked / tested / unknown strictly separate.
+- **`concord gate --bundle`** re-hashes every validated evidence artifact and
+  rejects forged, missing or artifact-less evidence.
+- **`concord fuzz --impl`** fuzzes an implementation against the model.
+- **`concord completions`** for bash, zsh, fish, powershell and elvish.
+- Composite GitHub Action (`action.yml`), release-binaries workflow, and
+  `docs/getting-started.md`.
+- READMEs for every crate and registry metadata; `cargo publish --workspace
+  --dry-run` passes (the pilot crate is `publish = false`).
+
+### Fixed
+
+- `concord fuzz` generated sequences from the model and checked them against
+  the same model, so it could never fail yet reported `fuzz_tested`. It now
+  labels that mode `model-self-check` (not evidence) unless `--impl` is given.
+- Fuzz campaigns no longer report the same minimized failure once per seed.
+
 ## [0.1.0] — 2026-10-05
 
 ### Added

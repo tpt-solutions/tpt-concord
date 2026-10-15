@@ -6,7 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
+publish = false
 keywords = ["wal", "transactions", "pilot", "assurance", "verification"]
 categories = ["development-tools::testing", "database"]
 

@@ -367,3 +367,125 @@ fn check_command_reports_conformance() {
     assert!(out.contains("invariant"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn init_scaffolds_a_project_that_passes_its_own_walkthrough() {
+    let dir = tmp_dir("init");
+    let proj = dir.join("starter");
+    let p = proj.to_str().unwrap();
+    let f = |name: &str| proj.join(name).to_str().unwrap().to_string();
+
+    let (code, _) = run(&["init", p]);
+    assert_eq!(code, 0);
+    // Refuses to clobber without --force.
+    assert_eq!(run(&["init", p]).0, 2);
+    assert_eq!(run(&["init", p, "--force"]).0, 0);
+
+    assert_eq!(run(&["spec", &f("spec.json")]).0, 0);
+    assert_eq!(run(&["check", &f("spec.json"), &f("trace-good.json")]).0, 0);
+    assert_eq!(run(&["check", &f("spec.json"), &f("trace-bad.json")]).0, 1);
+    let alphabet = "open,close,lock,unlock";
+    assert_eq!(
+        run(&["fuzz", &f("model.json"), "--alphabet", alphabet]).0,
+        0
+    );
+    let (code, out) = run(&[
+        "fuzz",
+        &f("model.json"),
+        "--alphabet",
+        alphabet,
+        "--impl",
+        &f("impl-buggy.json"),
+    ]);
+    assert_eq!(code, 1, "buggy impl must be caught: {out}");
+    // Identical minimized failures are reported once, not once per seed.
+    assert!(out.matches("\"seed\"").count() <= 3, "{out}");
+
+    let bundle = f("evidence");
+    let (code, out) = run(&[
+        "gate",
+        &f("graph.json"),
+        &f("policy.json"),
+        "--bundle",
+        &bundle,
+    ]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(run(&["evidence", "verify", &bundle]).0, 0);
+
+    let (code, out) = run(&[
+        "report",
+        &f("graph.json"),
+        "--policy",
+        &f("policy.json"),
+        "--bundle",
+        &bundle,
+    ]);
+    assert_eq!(code, 0);
+    assert!(out.contains("[model-checked]"), "{out}");
+    assert!(
+        out.contains("no evidence"),
+        "unproven claim must be listed: {out}"
+    );
+    assert!(out.contains("**APPROVED**"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn gate_with_bundle_rejects_tampered_or_unbacked_evidence() {
+    let dir = tmp_dir("tamper");
+    let proj = dir.join("starter");
+    let p = proj.to_str().unwrap();
+    assert_eq!(run(&["init", p]).0, 0);
+    let graph = proj.join("graph.json");
+    let policy = proj.join("policy.json");
+    let bundle = proj.join("evidence");
+    let args = |extra: &mut Vec<String>| {
+        let mut a = vec![
+            "gate".to_string(),
+            graph.to_str().unwrap().to_string(),
+            policy.to_str().unwrap().to_string(),
+        ];
+        a.append(extra);
+        a
+    };
+    let gate = |extra: Vec<String>| {
+        let mut extra = extra;
+        let a = args(&mut extra);
+        run(&a.iter().map(String::as_str).collect::<Vec<_>>())
+    };
+    let with_bundle = vec!["--bundle".to_string(), bundle.to_str().unwrap().to_string()];
+
+    assert_eq!(gate(with_bundle.clone()).0, 0);
+
+    // Tamper with the artifact: the graph still says "validated", the gate must not believe it.
+    std::fs::write(
+        bundle.join("artifacts/exploration.json"),
+        b"{\"forged\": true}",
+    )
+    .unwrap();
+    let (code, out) = gate(with_bundle.clone());
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("does not match its sha256"), "{out}");
+    // Without a bundle the gate takes the graph's word (documented behaviour).
+    assert_eq!(gate(vec![]).0, 0);
+
+    // Evidence marked validated but naming no artifact is rejected under --bundle.
+    let mut g: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&graph).unwrap()).unwrap();
+    g["evidence"]["evidence.door.exploration"]
+        .as_object_mut()
+        .unwrap()
+        .remove("artifact");
+    write(&graph, &g);
+    let (code, out) = gate(with_bundle);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("names no artifact"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn completions_emit_a_script() {
+    let (code, out) = run(&["completions", "bash"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("concord"));
+}

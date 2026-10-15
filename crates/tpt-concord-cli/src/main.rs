@@ -5,14 +5,18 @@
 //!
 //! Nine conceptual commands over machine-readable JSON objects:
 //! `spec`, `model`, `check`, `prove`, `simulate`, `fuzz`, `diff`,
-//! `evidence`, `gate`.
+//! `evidence`, `gate` — plus the adoption helpers `init`, `report` and
+//! `completions`.
 //!
 //! Exit codes: `0` success/approval, `1` verification failure/rejection,
 //! `2` usage or I/O error.
 
 mod cmd;
+mod report;
+mod scaffold;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -98,6 +102,11 @@ enum Command {
         #[arg(long)]
         #[arg(default_value_t = 12)]
         seq_len: usize,
+        /// Implementation under test (a `TransitionTable` JSON file). Every
+        /// model-legal sequence must behave identically in it. Without this
+        /// the model is only run against itself.
+        #[arg(long = "impl")]
+        implementation: Option<PathBuf>,
     },
     /// Compare two canonical traces.
     Diff {
@@ -117,7 +126,36 @@ enum Command {
         graph: PathBuf,
         /// Path to a `Policy` JSON file.
         policy: PathBuf,
+        /// Evidence bundle directory. Validated evidence must then name an
+        /// artifact inside it that re-hashes correctly, or it is rejected.
+        #[arg(long)]
+        bundle: Option<PathBuf>,
     },
+    /// Explain a graph in plain markdown: claims, assumptions, evidence,
+    /// and what is proven vs model-checked vs tested vs unknown.
+    Report {
+        /// Path to an `AssuranceGraph` JSON file.
+        graph: PathBuf,
+        /// Also evaluate this `Policy` and append the release decision
+        /// (exit 1 if rejected).
+        #[arg(long)]
+        policy: Option<PathBuf>,
+        /// Evidence bundle directory used to re-verify artifacts.
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+    },
+    /// Scaffold a runnable starter project (spec, model, traces, graph,
+    /// policy and a hash-verified evidence bundle).
+    Init {
+        /// Directory to create.
+        #[arg(default_value = "concord-starter")]
+        dir: PathBuf,
+        /// Overwrite existing files.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print a shell completion script (bash, zsh, fish, powershell, elvish).
+    Completions { shell: Shell },
 }
 
 #[derive(Subcommand)]
@@ -158,13 +196,40 @@ fn main() {
             seed,
             cycles,
             seq_len,
-        } => cmd::fuzz(&file, &alphabet, seed, cycles, seq_len),
+            implementation,
+        } => cmd::fuzz(
+            &file,
+            &alphabet,
+            seed,
+            cycles,
+            seq_len,
+            implementation.as_deref(),
+        ),
         Command::Diff { left, right } => cmd::diff(&left, &right),
         Command::Evidence { command } => match command {
             EvidenceCommand::Verify { dir } => cmd::evidence_verify(&dir),
             EvidenceCommand::Show { dir } => cmd::evidence_show(&dir),
         },
-        Command::Gate { graph, policy } => cmd::gate(&graph, &policy),
+        Command::Gate {
+            graph,
+            policy,
+            bundle,
+        } => cmd::gate(&graph, &policy, bundle.as_deref()),
+        Command::Report {
+            graph,
+            policy,
+            bundle,
+        } => cmd::report(&graph, policy.as_deref(), bundle.as_deref()),
+        Command::Init { dir, force } => scaffold::init(&dir, force),
+        Command::Completions { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "concord",
+                &mut std::io::stdout(),
+            );
+            0
+        }
     };
     std::process::exit(code);
 }

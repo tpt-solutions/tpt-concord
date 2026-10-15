@@ -1,0 +1,53 @@
+name: "Concord release gate"
+description: >
+  Evaluate a TPT Concord assurance graph against a release policy, re-verify
+  evidence artifacts, and publish the plain-markdown assurance report to the
+  job summary. Fails the job if the gate rejects.
+author: "TPT Solutions"
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  graph:
+    description: "Path to the AssuranceGraph JSON file"
+    required: true
+  policy:
+    description: "Path to the Policy JSON file"
+    required: true
+  bundle:
+    description: "Evidence bundle directory (strongly recommended: re-hashes every validated artifact)"
+    required: false
+    default: ""
+  version:
+    description: "tpt-concord-cli version to install (empty = latest)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install concord
+      shell: bash
+      env:
+        CONCORD_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$CONCORD_VERSION" ]; then
+          cargo install tpt-concord-cli --locked --version "$CONCORD_VERSION"
+        else
+          cargo install tpt-concord-cli --locked
+        fi
+    - name: Report and gate
+      shell: bash
+      env:
+        CONCORD_GRAPH: ${{ inputs.graph }}
+        CONCORD_POLICY: ${{ inputs.policy }}
+        CONCORD_BUNDLE: ${{ inputs.bundle }}
+      run: |
+        set -u
+        bundle=()
+        if [ -n "$CONCORD_BUNDLE" ]; then bundle=(--bundle "$CONCORD_BUNDLE"); fi
+        # The report exits 1 on rejection; keep going so the gate prints its decision too.
+        concord report "$CONCORD_GRAPH" --policy "$CONCORD_POLICY" "${bundle[@]}" \
+          | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+        concord gate "$CONCORD_GRAPH" "$CONCORD_POLICY" "${bundle[@]}"

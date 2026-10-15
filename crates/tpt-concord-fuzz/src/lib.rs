@@ -42,7 +42,7 @@ pub struct MinimizedFailure<I> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuzzReport<I> {
     pub cycles: usize,
-    /// Failures found and minimized (empty when the campaign is clean).
+    /// Distinct failures found and minimized (empty when the campaign is clean).
     pub failures: Vec<MinimizedFailure<I>>,
 }
 
@@ -93,11 +93,18 @@ where
         if let Err(reason) = check(&candidate) {
             let (minimal, _) = shrink::shrink(&candidate, |seq| check(seq).is_err());
             let minimal_reason = check(&minimal).err().unwrap_or_else(|| reason.clone());
-            failures.push(MinimizedFailure {
-                seed,
-                reason: minimal_reason,
-                input: minimal,
-            });
+            // Many seeds shrink to the same minimal case; report each once
+            // (the first seed that found it stays as the reproducer).
+            let key = sequence_to_json(&minimal);
+            if !failures.iter().any(|f: &MinimizedFailure<I>| {
+                f.reason == minimal_reason && sequence_to_json(&f.input) == key
+            }) {
+                failures.push(MinimizedFailure {
+                    seed,
+                    reason: minimal_reason,
+                    input: minimal,
+                });
+            }
         }
     }
     if let Some(dir) = failure_dir {

@@ -6,9 +6,9 @@
 
 use std::path::Path;
 use tpt_concord_check::{check_trace, classify_divergence};
-use tpt_concord_core::AssuranceGraph;
+use tpt_concord_core::{AssuranceGraph, EvidenceStatus};
 use tpt_concord_diff::DiffSide;
-use tpt_concord_evidence::{read_and_verify, EvidenceBundle};
+use tpt_concord_evidence::{read_and_verify, sha256_hex, EvidenceBundle};
 use tpt_concord_model::{run, TransitionTable};
 use tpt_concord_proof::{
     EidosAdapter, ExternalAdapter, LeanAdapter, ProofObligation, ProverAdapter, TelosAdapter,
@@ -222,8 +222,39 @@ pub fn simulate(file: &Path, alphabet: &str, depth: usize, bad_state: Option<&st
     }
 }
 
-/// `concord fuzz <file> --alphabet .. --seed .. --cycles .. --seq-len ..`
-pub fn fuzz(file: &Path, alphabet: &str, seed: u64, cycles: usize, seq_len: usize) -> i32 {
+/// Compare a reference model run against an implementation run over one
+/// model-legal sequence.
+fn compare_runs(
+    reference: &TransitionTable<String, String>,
+    implementation: &TransitionTable<String, String>,
+    seq: &[String],
+) -> Result<(), String> {
+    let Ok(expected) = run(reference, seq) else {
+        // The generator only emits model-legal sequences; nothing to compare.
+        return Ok(());
+    };
+    let actual = run(implementation, seq)
+        .map_err(|e| format!("implementation rejected a model-legal input: {e}"))?;
+    for (want, got) in expected.iter().zip(actual.iter()) {
+        if want.after != got.after || want.effects != got.effects {
+            return Err(format!(
+                "step {}: on input `{}` from `{}` the model goes to `{}` but the implementation goes to `{}`",
+                want.step, want.input, want.before, want.after, got.after
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `concord fuzz <file> --alphabet .. --seed .. --cycles .. --seq-len .. [--impl <file>]`
+pub fn fuzz(
+    file: &Path,
+    alphabet: &str,
+    seed: u64,
+    cycles: usize,
+    seq_len: usize,
+    implementation: Option<&Path>,
+) -> i32 {
     let table: TransitionTable<String, String> = match read_json(file) {
         Ok(t) => t,
         Err(e) => {
@@ -231,32 +262,52 @@ pub fn fuzz(file: &Path, alphabet: &str, seed: u64, cycles: usize, seq_len: usiz
             return 2;
         }
     };
+    let implementation: Option<TransitionTable<String, String>> = match implementation {
+        Some(path) => match read_json(path) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("fuzz: --impl: {e}");
+                return 2;
+            }
+        },
+        None => None,
+    };
     let alphabet: Vec<String> = alphabet.split(',').map(|s| s.trim().to_string()).collect();
-    // Invariant under fuzz: every legal generated sequence must execute
-    // without an unknown-transition error, and every reached state must be
-    // re-serializable (machine-readability itself is the invariant here).
+    // With `--impl`, every model-legal sequence must produce identical
+    // states and effects in the implementation. Without it the model is only
+    // run against itself, which cannot fail and says nothing about any
+    // implementation — reported as such, never as evidence.
     let report = tpt_concord_fuzz::fuzz_stateful(
         &table,
         &alphabet,
         seed,
         cycles,
         seq_len,
-        |seq: &[String]| {
-            // Re-execute: legal sequences generated from the abstract table
-            // must all be executable by the deterministic machine.
-            if run(&table, seq).is_ok() {
-                Ok(())
-            } else {
-                Err("generated sequence failed to execute".to_string())
-            }
+        |seq: &[String]| match &implementation {
+            Some(imp) => compare_runs(&table, imp, seq),
+            None => run(&table, seq)
+                .map(|_| ())
+                .map_err(|e| format!("generated sequence failed to execute: {e}")),
         },
         None,
     );
+    let (mode, note) = if implementation.is_some() {
+        (
+            "implementation-vs-model",
+            "a clean campaign is fuzz_tested evidence of conformance to the model, never proof",
+        )
+    } else {
+        (
+            "model-self-check",
+            "no --impl given: the model was only run against itself; this is a sanity check, NOT evidence about any implementation",
+        )
+    };
     let json = serde_json::json!({
+        "mode": mode,
         "cycles": report.cycles,
         "clean": report.is_clean(),
         "failures": report.failures,
-        "note": "a clean campaign is fuzz_tested evidence, never proof",
+        "note": note,
     });
     let ok = print_json(&json).is_ok();
     if !ok {
@@ -357,24 +408,112 @@ pub fn evidence_show(dir: &Path) -> i32 {
     }
 }
 
-/// `concord gate <graph> <policy>` — evaluate the release gate.
-pub fn gate(graph: &Path, policy: &Path) -> i32 {
-    let (graph, policy): (AssuranceGraph, Policy) = match (read_json(graph), read_json(policy)) {
+/// Re-verify every validated evidence record against an evidence bundle.
+///
+/// A graph file is just JSON: anyone can write `"status": "validated"`. With
+/// a bundle, validated evidence must name an artifact that exists inside the
+/// bundle directory and re-hashes to its recorded SHA-256; anything else is
+/// demoted to `rejected` before the gate runs.
+fn reverify_evidence(graph: &mut AssuranceGraph, bundle_dir: &Path) -> Vec<serde_json::Value> {
+    let ids: Vec<_> = graph.evidence_records().map(|e| e.id.clone()).collect();
+    let mut checks = Vec::new();
+    for id in ids {
+        let Some(record) = graph.evidence(&id) else {
+            continue;
+        };
+        if record.status != EvidenceStatus::Validated {
+            continue;
+        }
+        let verdict = match &record.artifact {
+            None => Err("validated evidence names no artifact".to_string()),
+            Some(art) => {
+                let rel = Path::new(&art.path);
+                if rel.is_absolute()
+                    || rel
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    Err(format!("artifact path {:?} escapes the bundle", art.path))
+                } else {
+                    match std::fs::read(bundle_dir.join(rel)) {
+                        Err(e) => Err(format!("cannot read artifact {}: {e}", art.path)),
+                        Ok(bytes) if sha256_hex(&bytes) == art.sha256 => Ok(()),
+                        Ok(_) => Err(format!("artifact {} does not match its sha256", art.path)),
+                    }
+                }
+            }
+        };
+        match verdict {
+            Ok(()) => checks.push(serde_json::json!({"evidence": id, "verified": true})),
+            Err(why) => {
+                if let Some(rec) = graph.evidence_mut(&id) {
+                    rec.reject();
+                }
+                checks.push(serde_json::json!({"evidence": id, "verified": false, "why": why}));
+            }
+        }
+    }
+    checks
+}
+
+/// `concord gate <graph> <policy> [--bundle <dir>]` — evaluate the release gate.
+pub fn gate(graph: &Path, policy: &Path, bundle: Option<&Path>) -> i32 {
+    let (mut graph, policy): (AssuranceGraph, Policy) = match (read_json(graph), read_json(policy))
+    {
         (Ok(g), Ok(p)) => (g, p),
         (Err(e), _) | (_, Err(e)) => {
             eprintln!("gate: {e}");
             return 2;
         }
     };
+    let checks = bundle.map(|dir| reverify_evidence(&mut graph, dir));
     let decision = evaluate(&graph, &policy);
     let approved = decision.is_approved();
-    let ok = print_json(&decision).is_ok();
-    if !ok {
+    let printed = match checks {
+        None => print_json(&decision),
+        Some(checks) => print_json(&serde_json::json!({
+            "decision": decision,
+            "evidence_checks": checks,
+        })),
+    };
+    if printed.is_err() {
         2
     } else if approved {
         0
     } else {
         1
+    }
+}
+
+/// `concord report <graph> [--policy <file>] [--bundle <dir>]` — markdown
+/// answers to "what do we claim, why, under which assumptions, with what
+/// evidence, and what is still unknown?".
+pub fn report(graph: &Path, policy: Option<&Path>, bundle: Option<&Path>) -> i32 {
+    let mut graph: AssuranceGraph = match read_json(graph) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("report: {e}");
+            return 2;
+        }
+    };
+    let policy: Option<Policy> = match policy.map(read_json).transpose() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("report: {e}");
+            return 2;
+        }
+    };
+    if let Some(dir) = bundle {
+        reverify_evidence(&mut graph, dir);
+    }
+    let decision = policy.as_ref().map(|p| evaluate(&graph, p));
+    print!(
+        "{}",
+        crate::report::render(&graph, policy.as_ref(), decision.as_ref())
+    );
+    match decision {
+        Some(d) if !d.is_approved() => 1,
+        _ => 0,
     }
 }
 

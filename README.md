@@ -60,18 +60,33 @@ specification, a deterministic reference model, a simulated implementation,
 trace conformance, a counterexample lifecycle, an evidence bundle and a
 release-gate decision. See [`crates/tpt-concord-pilot-archon-wal`](crates/tpt-concord-pilot-archon-wal).
 
+## Quick start
+
+```
+cargo install tpt-concord-cli --locked
+concord init demo && cd demo && cat README.txt
+```
+
+`concord init` writes a runnable example project; see
+[`docs/getting-started.md`](docs/getting-started.md) for the workflow and a
+ready-made GitHub Action that gates releases and posts the assurance report to
+the job summary.
+
 ## Command line
 
 ```
+concord init [dir]                            # scaffold a runnable starter project
+concord report <graph.json> --policy p.json   # plain markdown: claimed / why / unknown
+concord completions <shell>                   # bash, zsh, fish, powershell, elvish
 concord spec <spec.json>                      # validate a specification
 concord model <model.json> --inputs inputs.json
 concord check <spec.json> <trace.json>        # conformance verdict + exit code
 concord diff <a.json> <b.json>                # differential comparison
 concord simulate <model.json> --alphabet ...  # state-space exploration
-concord fuzz <model.json> --alphabet ...      # stateful fuzz campaign
+concord fuzz <model.json> --alphabet ... [--impl impl.json]  # stateful fuzz; --impl tests an implementation
 concord prove --adapter lean4 --statement ... # render a proof obligation
 concord evidence verify <bundle-dir>          # re-verify artifact hashes
-concord gate <graph.json> <policy.json>       # release decision
+concord gate <graph.json> <policy.json> [--bundle dir]  # release decision; --bundle re-hashes evidence
 ```
 
 ## Phase 5: ecosystem assurance
@@ -86,6 +101,7 @@ models) land in each subsystem's repo as the next step.
 
 ## Documentation
 
+- [`docs/getting-started.md`](docs/getting-started.md) — install, scaffold, CI gate
 - [`docs/architecture.md`](docs/architecture.md) — how a release answers the
   §13 questions (what we claim / why / assumptions / evidence / what's unproven)
 - [`docs/pipeline.md`](docs/pipeline.md) — the §7 AI acceptance pipeline and
