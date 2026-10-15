@@ -24,3 +24,8 @@ tpt-concord-release = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+# The real Archon storage engine under test, pinned to an exact commit so the
+# evidence is reproducible. Bump the rev deliberately, with a new evidence run.
+[dev-dependencies]
+tpt-archon-core = { git = "https://github.com/tpt-solutions/tpt-archon", rev = "928c00dec13560844a52222e3d02107516a7c09d" }

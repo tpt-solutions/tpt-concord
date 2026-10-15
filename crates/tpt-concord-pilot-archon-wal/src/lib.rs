@@ -15,9 +15,11 @@
 //! 7. an evidence bundle on disk,
 //! 8. an Assurance Graph and a release-gate decision.
 //!
-//! The real Archon integration (running this pipeline against the actual
-//! `tpt-archon` storage engine) is Phase 5; this pilot pins down the shape of
-//! that work.
+//! The real Archon storage engine is checked in `tests/archon_storage.rs`:
+//! the `tpt-archon-core` crate is a dev-dependency pinned to an exact commit,
+//! and the specification there is written from Archon's documented recovery
+//! contract. That run found a defect, pinned as an expected failure; see the
+//! crate README.
 
 pub mod pipeline;
 pub mod wal;

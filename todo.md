@@ -189,4 +189,6 @@ License: dual **MIT OR Apache-2.0**, copyright TPT Solutions.
 - [x] JSON Schema export for every CLI object (`concord schema`, `schema` feature per crate)
 - [x] `concord watch` — re-run check/gate on file change
 - [x] Derive macro to generate a spec/model skeleton from annotated Rust types (`SpecState` for state; model tables still hand-written)
-- [ ] Runtime conformance harnesses in each upstream TPT repo (§12 follow-through)
+- [x] Archon WAL/storage run against the real engine (`tests/archon_storage.rs`); findings in `docs/archon-findings.md`
+- [ ] Report the two Archon defects upstream (issue or PR); then flip the pinned tests when fixed
+- [ ] Runtime conformance harnesses for the other upstream TPT repos (§12 follow-through)

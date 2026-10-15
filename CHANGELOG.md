@@ -20,6 +20,10 @@ All notable changes to TPT Concord are recorded here. Format follows
   `tpt-concord-spec` behind its `derive` feature). Maps a struct's fields onto
   spec state variables and values, and generates a specification skeleton with
   its identity. Unsupported field types are compile errors.
+- **Archon pilot against the real engine** (`tests/archon_storage.rs`,
+  `tpt-archon-core` pinned to `928c00d`). Exhaustive sweep of recovery against
+  Archon's documented contract. Found two defects, pinned as expected-failure
+  tests. Write-up in `docs/archon-findings.md`.
 - **`concord watch`** re-runs any concord command when the files or directories
   it names change (polling, standard library only; exit codes pass through).
 - **`concord schema`** prints or writes JSON Schemas for every file kind the CLI

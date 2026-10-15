@@ -25,6 +25,20 @@ The real Archon integration (running this pipeline against the actual
 `tpt-archon` storage engine) is Phase 5; this pilot pins down the shape of
 that work.
 
+## Against the real Archon engine
+
+`tests/archon_storage.rs` checks `tpt-archon-core` (pinned to commit `928c00d`
+as a dev-dependency) against its documented recovery contract. It runs an
+exhaustive sweep of every write and commit sequence up to length 4, under
+several caller protocols and buffer sizes.
+
+It found two defects, both pinned as passing tests that assert the defect and
+will fail once it is fixed. Full write-up and reproduction:
+[`docs/archon-findings.md`](../../docs/archon-findings.md).
+
+- Uncommitted pages evicted to the device survive recovery (no undo).
+- `StorageEngine::commit` flushes data before the caller can persist the log.
+
 ## License
 
 Dual-licensed under **MIT OR Apache-2.0**. Copyright TPT Solutions.

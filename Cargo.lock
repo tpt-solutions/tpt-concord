@@ -1240,6 +1240,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
+name = "tpt-archon-core"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-archon?rev=928c00dec13560844a52222e3d02107516a7c09d#928c00dec13560844a52222e3d02107516a7c09d"
+
+[[package]]
 name = "tpt-concord-assurance"
 version = "0.1.0"
 dependencies = [
@@ -1375,6 +1380,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tpt-archon-core",
  "tpt-concord-check",
  "tpt-concord-core",
  "tpt-concord-evidence",
