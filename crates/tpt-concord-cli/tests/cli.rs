@@ -489,3 +489,73 @@ fn completions_emit_a_script() {
     assert_eq!(code, 0);
     assert!(out.contains("concord"));
 }
+
+#[test]
+fn schemas_accept_starter_files_and_reject_malformed_ones() {
+    let dir = tmp_dir("schema");
+    let proj = dir.join("starter");
+    let p = proj.to_str().unwrap();
+    assert_eq!(run(&["init", p]).0, 0);
+
+    let load = |path: std::path::PathBuf| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    };
+    let errors = |schema: &str, instance: &serde_json::Value| -> Vec<String> {
+        let schema = load(proj.join("schemas").join(schema));
+        let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+        validator
+            .iter_errors(instance)
+            .map(|e| e.to_string())
+            .collect()
+    };
+
+    // Everything `init` writes must satisfy the schema it points to.
+    for (file, schema) in [
+        ("spec.json", "spec.schema.json"),
+        ("model.json", "model.schema.json"),
+        ("impl-buggy.json", "model.schema.json"),
+        ("trace-good.json", "trace.schema.json"),
+        ("trace-bad.json", "trace.schema.json"),
+        ("policy.json", "policy.schema.json"),
+        ("graph.json", "graph.schema.json"),
+    ] {
+        let instance = load(proj.join(file));
+        assert_eq!(
+            instance["$schema"],
+            serde_json::json!(format!("schemas/{schema}")),
+            "{file} points at its schema"
+        );
+        let errs = errors(schema, &instance);
+        assert!(errs.is_empty(), "{file} violates {schema}: {errs:?}");
+    }
+
+    // A malformed specification is caught by the schema, not only at runtime.
+    let bad_spec = serde_json::json!({
+        "id": "spec.bad",
+        "version": "1.0.0",
+        "name": "bad",
+        "description": "",
+        "invariants": [{"name": "x", "expr": {"not_an_expr": 1}}]
+    });
+    assert!(!errors("spec.schema.json", &bad_spec).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn schema_command_prints_or_writes_every_kind() {
+    let (code, out) = run(&["schema", "policy"]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["title"], "Policy");
+
+    let dir = tmp_dir("schema-dir");
+    let (code, _) = run(&["schema", "--dir", dir.to_str().unwrap()]);
+    assert_eq!(code, 0);
+    for f in ["spec", "model", "trace", "graph", "policy", "manifest"] {
+        assert!(dir.join(format!("{f}.schema.json")).exists(), "{f}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Naming no kind and no directory is a usage error.
+    assert_eq!(run(&["schema"]).0, 2);
+}

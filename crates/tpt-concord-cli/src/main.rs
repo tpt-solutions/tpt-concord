@@ -14,6 +14,7 @@
 mod cmd;
 mod report;
 mod scaffold;
+mod schema;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -24,7 +25,7 @@ use std::path::PathBuf;
     name = "concord",
     version,
     about = "Specifications, claims, evidence, conformance and assurance as first-class objects",
-    after_help = "All objects are JSON; see the crate docs for schemas."
+    after_help = "All objects are JSON. Run `concord schema --dir schemas/` for editor-ready JSON Schemas."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -154,6 +155,15 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Print a JSON Schema for a file kind, or write them all to a directory.
+    Schema {
+        /// Which file kind to print.
+        #[arg(value_enum, required_unless_present = "dir")]
+        kind: Option<schema::Kind>,
+        /// Write every schema into this directory instead of printing one.
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
     /// Print a shell completion script (bash, zsh, fish, powershell, elvish).
     Completions { shell: Shell },
 }
@@ -221,6 +231,7 @@ fn main() {
             bundle,
         } => cmd::report(&graph, policy.as_deref(), bundle.as_deref()),
         Command::Init { dir, force } => scaffold::init(&dir, force),
+        Command::Schema { kind, dir } => schema::schema(kind, dir.as_deref()),
         Command::Completions { shell } => {
             clap_complete::generate(
                 shell,

@@ -16,6 +16,10 @@ All notable changes to TPT Concord are recorded here. Format follows
   rejects forged, missing or artifact-less evidence.
 - **`concord fuzz --impl`** fuzzes an implementation against the model.
 - **`concord completions`** for bash, zsh, fish, powershell and elvish.
+- **`concord schema`** prints or writes JSON Schemas for every file kind the CLI
+  reads, generated from the same types it deserializes. The types derive
+  `JsonSchema` behind the `schema` feature of each library crate. `concord init`
+  writes the schemas into `schemas/` and sets a `$schema` key in each file.
 - Composite GitHub Action (`action.yml`), release-binaries workflow, and
   `docs/getting-started.md`.
 - READMEs for every crate and registry metadata; `cargo publish --workspace

@@ -52,6 +52,7 @@ sha2 = "0.10"
 hex = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+schemars = { version = "1", default-features = false, features = ["derive", "std"] }
 
 # The workspace ships a lockfile for reproducible evidence: CI and release
 # builds must see the exact dependency graph recorded in evidence bundles.

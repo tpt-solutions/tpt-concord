@@ -18,6 +18,7 @@ use std::fmt;
 /// A dynamically-typed value used in specification states and predicates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Value {
     Int(i128),
     Bool(bool),
@@ -80,6 +81,7 @@ pub enum EvalError {
 /// A predicate/expression AST over `State` environments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Expr {
     /// Read a variable from the environment.
     Var(String),

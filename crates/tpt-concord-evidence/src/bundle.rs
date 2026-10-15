@@ -14,6 +14,7 @@ use tpt_concord_core::{Assumption, EvidenceID, EvidenceKind};
 /// Identity of the toolchain (compiler, prover, fuzzer, ...) that produced
 /// evidence — recorded so results can be reproduced bit-for-bit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ToolchainIdentity {
     /// e.g. `rustc`, `lean`, `telos`.
     pub name: String,
@@ -37,6 +38,7 @@ impl ToolchainIdentity {
 
 /// One stored artifact with its content hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Artifact {
     pub id: EvidenceID,
     pub kind: EvidenceKind,
@@ -57,6 +59,7 @@ struct Content {
 
 /// The bundle manifest. Sections mirror spec §5 `tpt-concord-evidence`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EvidenceBundle {
     pub bundle_id: String,
     /// Unix timestamp of bundle creation.

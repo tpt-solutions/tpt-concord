@@ -16,6 +16,16 @@ use std::str::FromStr;
 #[serde(try_from = "String", into = "String")]
 pub struct Version(String);
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Version {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Version".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({"type": "string", "minLength": 1})
+    }
+}
+
 impl Version {
     /// Create a validated version string (non-empty, no whitespace, ≤256 bytes).
     pub fn new(s: impl Into<String>) -> Result<Self, Error> {

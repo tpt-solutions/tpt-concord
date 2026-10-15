@@ -16,6 +16,16 @@ use tpt_concord_core::TraceID;
 #[serde(try_from = "String", into = "String")]
 pub struct EventID(String);
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for EventID {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "EventID".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({"type": "string", "minLength": 1})
+    }
+}
+
 impl EventID {
     /// Wrap a pre-computed hex digest (validated: 64 lowercase hex chars).
     pub fn from_hex(s: impl Into<String>) -> Result<Self, TraceError> {
@@ -81,6 +91,7 @@ impl fmt::Display for EventID {
 
 /// One canonical trace event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Event {
     /// Position in the trace; events are strictly ordered by `seq`.
     pub seq: u64,
@@ -112,6 +123,7 @@ impl Event {
 
 /// A canonical, content-addressed trace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Trace {
     /// Content address over the ordered event IDs.
     pub id: TraceID,

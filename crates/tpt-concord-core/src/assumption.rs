@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 /// An explicit precondition accepted without independent proof.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Assumption {
     pub id: AssumptionID,
     /// What is being assumed, stated precisely.

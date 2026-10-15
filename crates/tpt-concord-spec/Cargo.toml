@@ -12,7 +12,11 @@ readme = "README.md"
 keywords = ["specification", "invariants", "contracts", "verification", "formal-methods"]
 categories = ["development-tools", "development-tools::testing"]
 
+[features]
+schema = ["dep:schemars"]
+
 [dependencies]
+schemars = { workspace = true, optional = true }
 tpt-concord-core = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

@@ -43,6 +43,17 @@ macro_rules! define_id {
         #[serde(try_from = "String", into = "String")]
         pub struct $name(String);
 
+        #[cfg(feature = "schema")]
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+            fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({"type": "string", "minLength": 1, "maxLength": 256})
+            }
+        }
+
+
         impl $name {
             /// Create a validated identifier.
             pub fn new(s: impl Into<String>) -> Result<Self, Error> {

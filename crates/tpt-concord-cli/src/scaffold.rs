@@ -10,6 +10,7 @@
 //! second claim with no evidence, so the very first `concord report` shows
 //! the difference between "what we know" and "what we don't".
 
+use crate::schema::{self, Kind};
 use serde::Serialize;
 use std::path::Path;
 use tpt_concord_check::StepView;
@@ -96,6 +97,19 @@ fn bad_trace() -> Trace {
 
 fn pretty<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string_pretty(value).map_err(|e| e.to_string())
+}
+
+/// Serialize a file kind with a `$schema` pointer so editors validate it.
+/// Concord's readers ignore unknown keys, so the pointer is inert for the CLI.
+fn document<T: Serialize>(kind: Kind, value: &T) -> Result<String, String> {
+    let mut json = serde_json::to_value(value).map_err(|e| e.to_string())?;
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert(
+            "$schema".to_string(),
+            format!("schemas/{}", kind.file_name()).into(),
+        );
+    }
+    serde_json::to_string_pretty(&json).map_err(|e| e.to_string())
 }
 
 /// Build the starter assurance graph and its evidence bundle.
@@ -235,12 +249,12 @@ pub fn init(dir: &Path, force: bool) -> i32 {
 
 fn write_project(dir: &Path, force: bool) -> Result<Vec<String>, String> {
     let files: Vec<(&str, String)> = vec![
-        ("spec.json", pretty(&spec())?),
-        ("model.json", pretty(&table("closed"))?),
-        ("impl-buggy.json", pretty(&table("open"))?),
-        ("trace-good.json", pretty(&good_trace())?),
-        ("trace-bad.json", pretty(&bad_trace())?),
-        ("policy.json", pretty(&policy())?),
+        ("spec.json", document(Kind::Spec, &spec())?),
+        ("model.json", document(Kind::Model, &table("closed"))?),
+        ("impl-buggy.json", document(Kind::Model, &table("open"))?),
+        ("trace-good.json", document(Kind::Trace, &good_trace())?),
+        ("trace-bad.json", document(Kind::Trace, &bad_trace())?),
+        ("policy.json", document(Kind::Policy, &policy())?),
         ("README.txt", README.to_string()),
     ];
     if !force {
@@ -265,10 +279,13 @@ fn write_project(dir: &Path, force: bool) -> Result<Vec<String>, String> {
     let graph = graph_and_bundle(&bundle_dir)?;
 
     let mut written = Vec::new();
-    for (name, content) in files.into_iter().chain([("graph.json", pretty(&graph)?)]) {
+    let graph_json = document(Kind::Graph, &graph)?;
+    for (name, content) in files.into_iter().chain([("graph.json", graph_json)]) {
         std::fs::write(dir.join(name), content).map_err(|e| format!("cannot write {name}: {e}"))?;
         written.push(name.to_string());
     }
     written.push("evidence/".to_string());
+    schema::write_all(&dir.join("schemas"))?;
+    written.push("schemas/".to_string());
     Ok(written)
 }

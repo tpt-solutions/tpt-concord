@@ -11,6 +11,7 @@ use tpt_concord_core::{
 
 /// Minimum assurance demanded of one required claim.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ClaimRequirement {
     /// Weakest acceptable assurance level for this claim.
     pub min_level: AssuranceLevel,
@@ -24,6 +25,7 @@ impl ClaimRequirement {
 
 /// What the release gate demands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Policy {
     pub name: String,
     /// Claims that must be established, with their minimum levels.
@@ -64,6 +66,7 @@ impl Policy {
 /// names the offending object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "reason")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RejectionReason {
     GraphInvalid {
         detail: String,
@@ -95,6 +98,7 @@ pub enum RejectionReason {
 
 /// A gate approval, with what was accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GateSummary {
     pub policy: String,
     pub established_claims: Vec<ClaimID>,
@@ -108,6 +112,7 @@ pub struct GateSummary {
 /// The gate's decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "decision")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum GateDecision {
     Approved(GateSummary),
     Rejected { reasons: Vec<RejectionReason> },

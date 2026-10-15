@@ -16,6 +16,7 @@ use tpt_concord_core::{SpecificationID, Version};
 /// Expected type of a state variable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ValueType {
     Int,
     Bool,
@@ -49,6 +50,16 @@ impl ValueType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Effect(pub String);
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Effect {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Effect".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({"type": "string", "minLength": 1})
+    }
+}
+
 impl Effect {
     pub fn new(s: impl Into<String>) -> Self {
         Effect(s.into())
@@ -63,6 +74,7 @@ impl fmt::Display for Effect {
 
 /// A named predicate (e.g. an invariant with a name for error reporting).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Named {
     pub name: String,
     pub expr: Expr,
@@ -79,6 +91,7 @@ impl Named {
 
 /// A named state transition with its own pre/postconditions and permitted effects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Transition {
     pub name: String,
     /// Preconditions evaluated on the state before the transition.
@@ -106,6 +119,7 @@ impl Transition {
 /// Scope of a resource bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BoundScope {
     /// Maximum per single operation/transition.
     PerOperation,
@@ -115,6 +129,7 @@ pub enum BoundScope {
 
 /// A declared resource bound (e.g. memory, steps, io ops).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ResourceBound {
     /// Name of the measured resource (e.g. `steps`, `allocations`).
     pub resource: String,
@@ -128,6 +143,7 @@ pub struct ResourceBound {
 /// holds in the pre-state and the observed effects are a subset of the
 /// behaviour's allowed effects. An empty `effects` set means "effect-unconstrained".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PermittedBehaviour {
     pub name: String,
     /// Guard evaluated on the pre-state.
@@ -138,6 +154,7 @@ pub struct PermittedBehaviour {
 
 /// A complete machine-readable specification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Specification {
     pub id: SpecificationID,
     pub version: Version,

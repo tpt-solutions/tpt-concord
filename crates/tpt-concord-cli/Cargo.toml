@@ -17,19 +17,23 @@ name = "concord"
 path = "src/main.rs"
 
 [dependencies]
-tpt-concord-core = { workspace = true }
-tpt-concord-spec = { workspace = true }
-tpt-concord-model = { workspace = true }
-tpt-concord-trace = { workspace = true }
+tpt-concord-core = { workspace = true, features = ["schema"] }
+tpt-concord-spec = { workspace = true, features = ["schema"] }
+tpt-concord-model = { workspace = true, features = ["schema"] }
+tpt-concord-trace = { workspace = true, features = ["schema"] }
 tpt-concord-check = { workspace = true }
 tpt-concord-property = { workspace = true }
 tpt-concord-fuzz = { workspace = true }
 tpt-concord-diff = { workspace = true }
 tpt-concord-proof = { workspace = true }
 tpt-concord-sim = { workspace = true }
-tpt-concord-evidence = { workspace = true }
-tpt-concord-release = { workspace = true }
+tpt-concord-evidence = { workspace = true, features = ["schema"] }
+tpt-concord-release = { workspace = true, features = ["schema"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+jsonschema = "0.33.0"

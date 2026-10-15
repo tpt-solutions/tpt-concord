@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// A precise statement about a system whose acceptance is mediated by the graph.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Claim {
     pub id: ClaimID,
     /// The precise statement being claimed.
@@ -55,6 +56,7 @@ impl Claim {
 
 /// Something that must be established before a claim can be accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Obligation {
     pub id: ObligationID,
     /// What must be established, stated precisely.
@@ -76,6 +78,7 @@ impl Obligation {
 /// presentable as a Lean proof.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum EvidenceKind {
     /// A Lean theorem/proof artifact.
     LeanProof,
@@ -121,6 +124,7 @@ impl std::fmt::Display for EvidenceKind {
 
 /// Where the evidence artifact lives and how to detect tampering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ArtifactRef {
     /// Path or URI of the artifact (relative to an evidence bundle root).
     pub path: String,
@@ -135,6 +139,7 @@ pub struct ArtifactRef {
 /// (re-run, hash-verified, replayed — whatever the kind demands).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum EvidenceStatus {
     Unvalidated,
     Validated,
@@ -143,6 +148,7 @@ pub enum EvidenceStatus {
 
 /// A machine-addressable object demonstrating an obligation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EvidenceRecord {
     pub id: EvidenceID,
     pub kind: EvidenceKind,
@@ -194,6 +200,7 @@ impl EvidenceRecord {
 
 /// An obligation without acceptable backing evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UnmetObligation {
     pub obligation: ObligationID,
     pub reason: UnmetReason,
@@ -202,6 +209,7 @@ pub struct UnmetObligation {
 /// Why an obligation is unmet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum UnmetReason {
     /// No evidence has been linked at all.
     NoEvidence,
@@ -213,6 +221,7 @@ pub enum UnmetReason {
 
 /// Result of evaluating whether a claim is established.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ClaimEvaluation {
     pub claim: ClaimID,
     pub established: bool,
@@ -231,6 +240,7 @@ pub struct ClaimEvaluation {
 
 /// The directed assurance graph over claims, obligations and evidence.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AssuranceGraph {
     claims: BTreeMap<ClaimID, Claim>,
     obligations: BTreeMap<ObligationID, Obligation>,

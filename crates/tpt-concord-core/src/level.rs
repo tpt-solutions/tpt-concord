@@ -16,6 +16,7 @@ use std::str::FromStr;
 /// What kind of assurance exists for a claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AssuranceLevel {
     /// A specification exists; nothing beyond that.
     Specified,

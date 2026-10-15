@@ -132,12 +132,37 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct TransitionEntry<S, I> {
     from: S,
     input: I,
     to: S,
     #[serde(default)]
     effects: BTreeSet<String>,
+}
+
+#[cfg(feature = "schema")]
+#[allow(dead_code)] // only read through its generated schema
+#[derive(schemars::JsonSchema)]
+#[schemars(rename = "TransitionTable")]
+struct TransitionTableShape<S, I> {
+    initial: S,
+    transitions: Vec<TransitionEntry<S, I>>,
+}
+
+/// The JSON shape is an explicit transition list, not a map (JSON has no tuple keys).
+#[cfg(feature = "schema")]
+impl<S, I> schemars::JsonSchema for TransitionTable<S, I>
+where
+    S: schemars::JsonSchema + Ord + Clone,
+    I: schemars::JsonSchema + Ord + Clone,
+{
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "TransitionTable".into()
+    }
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        <TransitionTableShape<S, I> as schemars::JsonSchema>::json_schema(generator)
+    }
 }
 
 impl<S, I> Serialize for TransitionTable<S, I>

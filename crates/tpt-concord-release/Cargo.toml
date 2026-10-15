@@ -12,7 +12,11 @@ readme = "README.md"
 keywords = ["release-gate", "policy", "assurance", "compliance", "verification"]
 categories = ["development-tools", "development-tools::build-utils"]
 
+[features]
+schema = ["dep:schemars"]
+
 [dependencies]
+schemars = { workspace = true, optional = true }
 tpt-concord-core = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
