@@ -50,6 +50,7 @@ produced them.
 | [`tpt-concord-evidence`](crates/tpt-concord-evidence) | Evidence bundles: artifacts, traces, campaigns, toolchain identities |
 | [`tpt-concord-release`](crates/tpt-concord-release) | Release gate: obligations, completeness, policy enforcement, decisions |
 | [`tpt-concord-cli`](crates/tpt-concord-cli) | `spec`, `model`, `check`, `prove`, `simulate`, `fuzz`, `diff`, `evidence`, `gate` |
+| [`tpt-concord-derive`](crates/tpt-concord-derive) | `#[derive(SpecState)]`: map a Rust struct onto spec state and generate a specification skeleton (re-exported by `tpt-concord-spec` with its `derive` feature) |
 | [`tpt-concord-pilot-archon-wal`](crates/tpt-concord-pilot-archon-wal) | Milestone pilot: WAL/transaction claim + Assurance Graph end-to-end |
 | [`tpt-concord-assurance`](crates/tpt-concord-assurance) | §12 assurance infrastructure for TPT subsystems: Archon, Boxcar, Keystone, Fabric, Repro, WASM, crypto, networking, scientific/engineering |
 

@@ -16,6 +16,10 @@ All notable changes to TPT Concord are recorded here. Format follows
   rejects forged, missing or artifact-less evidence.
 - **`concord fuzz --impl`** fuzzes an implementation against the model.
 - **`concord completions`** for bash, zsh, fish, powershell and elvish.
+- **`#[derive(SpecState)]`** (new crate `tpt-concord-derive`, re-exported by
+  `tpt-concord-spec` behind its `derive` feature). Maps a struct's fields onto
+  spec state variables and values, and generates a specification skeleton with
+  its identity. Unsupported field types are compile errors.
 - **`concord watch`** re-runs any concord command when the files or directories
   it names change (polling, standard library only; exit codes pass through).
 - **`concord schema`** prints or writes JSON Schemas for every file kind the CLI

@@ -1312,6 +1312,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-concord-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "tpt-concord-spec",
+]
+
+[[package]]
 name = "tpt-concord-diff"
 version = "0.1.0"
 dependencies = [
@@ -1423,6 +1433,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tpt-concord-core",
+ "tpt-concord-derive",
 ]
 
 [[package]]

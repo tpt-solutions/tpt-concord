@@ -14,10 +14,12 @@ categories = ["development-tools", "development-tools::testing"]
 
 [features]
 schema = ["dep:schemars"]
+derive = ["dep:tpt-concord-derive"]
 
 [dependencies]
 schemars = { workspace = true, optional = true }
 tpt-concord-core = { workspace = true }
+tpt-concord-derive = { workspace = true, optional = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

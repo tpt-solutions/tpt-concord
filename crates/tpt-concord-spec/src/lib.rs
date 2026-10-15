@@ -10,6 +10,7 @@
 pub mod checks;
 pub mod expr;
 pub mod spec;
+pub mod state;
 
 pub use checks::{Violation, ViolationKind};
 pub use expr::{EvalError, Expr, State, Value};
@@ -17,3 +18,8 @@ pub use spec::{
     BoundScope, Effect, Named, PermittedBehaviour, ResourceBound, Specification, Transition,
     ValueType,
 };
+pub use state::{skeleton, SpecState, SpecValue};
+
+/// `#[derive(SpecState)]` — available with the `derive` feature.
+#[cfg(feature = "derive")]
+pub use tpt_concord_derive::SpecState;

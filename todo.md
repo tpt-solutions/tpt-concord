@@ -188,5 +188,5 @@ License: dual **MIT OR Apache-2.0**, copyright TPT Solutions.
 - [ ] Publish crates (`cargo publish --workspace`, then tag `v0.1.0`)
 - [x] JSON Schema export for every CLI object (`concord schema`, `schema` feature per crate)
 - [x] `concord watch` — re-run check/gate on file change
-- [ ] Derive macro to generate a spec/model skeleton from annotated Rust types
+- [x] Derive macro to generate a spec/model skeleton from annotated Rust types (`SpecState` for state; model tables still hand-written)
 - [ ] Runtime conformance harnesses in each upstream TPT repo (§12 follow-through)

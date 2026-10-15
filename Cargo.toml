@@ -17,6 +17,7 @@ members = [
     "crates/tpt-concord-cli",
     "crates/tpt-concord-pilot-archon-wal",
     "crates/tpt-concord-assurance",
+    "crates/tpt-concord-derive",
 ]
 
 [workspace.package]
@@ -43,6 +44,7 @@ tpt-concord-sim = { path = "crates/tpt-concord-sim", version = "0.1.0" }
 tpt-concord-contract = { path = "crates/tpt-concord-contract", version = "0.1.0" }
 tpt-concord-evidence = { path = "crates/tpt-concord-evidence", version = "0.1.0" }
 tpt-concord-release = { path = "crates/tpt-concord-release", version = "0.1.0" }
+tpt-concord-derive = { path = "crates/tpt-concord-derive", version = "0.1.0" }
 
 # External dependencies
 serde = { version = "1", features = ["derive"] }
@@ -52,6 +54,9 @@ sha2 = "0.10"
 hex = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
 schemars = { version = "1", default-features = false, features = ["derive", "std"] }
 
 # The workspace ships a lockfile for reproducible evidence: CI and release
