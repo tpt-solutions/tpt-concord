@@ -190,6 +190,6 @@ License: dual **MIT OR Apache-2.0**, copyright TPT Solutions.
 - [x] `concord watch` — re-run check/gate on file change
 - [x] Derive macro to generate a spec/model skeleton from annotated Rust types (`SpecState` for state; model tables still hand-written)
 - [x] Archon WAL/storage run against the real engine (`tests/archon_storage.rs`); findings in `docs/archon-findings.md`
-- [x] Fix pushed upstream: branch `fix/storage-no-steal-commit-order` (`86ff808`), pilot pinned to it
-- [ ] Open the two issues and a PR upstream (`docs/archon-issues-draft.md`); merge; then flip the pinned tests
+- [x] Fix merged to Archon `master` (`a9d6f23`); pilot pinned to it
+- [ ] Close the two upstream issues (`docs/archon-issues-draft.md`) as fixed
 - [ ] Runtime conformance harnesses for the other upstream TPT repos (§12 follow-through)
