@@ -1,0 +1,516 @@
+From 09a67c0723087f8d26ad7f2b230103366a215e3c Mon Sep 17 00:00:00 2001
+From: PhillipT1 <43970944+PhillipT1@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 15:44:57 +1300
+Subject: [PATCH] Make StorageEngine commits and page eviction write-ahead safe
+
+- Buffer pool for StorageEngine is no-steal: eviction never writes a dirty,
+  uncommitted page to the device. A write that needs one fails with
+  UncommittedPagesPinned before anything is logged.
+- commit() is replaced by commit_durable(persist): the commit marker is
+  appended, the complete log is persisted, and only then are pages flushed.
+  If persist fails the marker is withdrawn.
+- write_page checks bounds and reserves a frame before logging, and withdraws
+  its log record if staging fails, so a failed write can never become durable
+  through a later commit.
+- Tests: refused eviction leaves the device and log untouched; data is not
+  flushed before the log is persisted; a failed persist withdraws the marker;
+  out-of-bounds writes are refused before logging.
+---
+ CHANGELOG.md                            |  19 +++
+ crates/tpt-archon-core/src/block/mod.rs |  10 ++
+ crates/tpt-archon-core/src/faultsim.rs  |   4 +-
+ crates/tpt-archon-core/src/page.rs      |  42 ++++-
+ crates/tpt-archon-core/src/storage.rs   | 206 +++++++++++++++++++++---
+ crates/tpt-archon-core/src/wal.rs       |   8 +
+ 6 files changed, 262 insertions(+), 27 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ce34a76..caa4f77 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -8,8 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ ## [Unreleased]
+ 
+ ### Added
++- `tpt-archon-core`: `StorageEngine::commit_durable(persist)`, the commit path
++  that enforces write-ahead ordering. It appends the `Commit` marker, hands the
++  complete log to `persist`, and only then flushes data pages.
++- `tpt-archon-core`: `StorageError::UncommittedPagesPinned`, returned when a
++  write would need an uncommitted page written to the device to make room.
++
+ ### Changed
++- `tpt-archon-core` (breaking): `StorageEngine::commit()` is removed. It flushed
++  data before the caller could persist the log. Use `commit_durable`.
++- `tpt-archon-core`: `StorageEngine` uses a no-steal buffer pool. Dirty pages
++  are never written to the device by eviction. A batch must fit in the pool.
++- `tpt-archon-core`: `StorageEngine::append_commit` and `flush_data` are no
++  longer public. Calling them out of order was the defect.
++
+ ### Fixed
++- `tpt-archon-core`: uncommitted pages evicted to the device survived recovery.
++  Recovery is redo-only and never undid them. Under no-steal they never reach
++  the device before commit.
++- `tpt-archon-core`: `write_page` logged a record before it could fail (out of
++  bounds, or no room in the pool). A later commit could then make a write the
++  caller had been told failed become durable. Failed writes now leave no record.
+ 
+ ## [0.1.0] - 2026-08-05
+ 
+diff --git a/crates/tpt-archon-core/src/block/mod.rs b/crates/tpt-archon-core/src/block/mod.rs
+index b64ad4b..4f4300a 100644
+--- a/crates/tpt-archon-core/src/block/mod.rs
++++ b/crates/tpt-archon-core/src/block/mod.rs
+@@ -60,6 +60,10 @@ pub enum StorageError {
+     /// The buffer pool is full and every frame is pinned, so no page could be
+     /// evicted to make room.
+     AllFramesPinned,
++    /// The buffer pool holds only uncommitted dirty pages, and the engine does
++    /// not write uncommitted pages to the device to make room. Commit the batch
++    /// (or use a larger pool) and retry.
++    UncommittedPagesPinned,
+     /// The operation is not supported by this backend (e.g. writing to a
+     /// read-only [`MmapBlockDevice`](crate::block::MmapBlockDevice)).
+     Unsupported,
+@@ -91,6 +95,12 @@ impl fmt::Display for StorageError {
+             StorageError::AllFramesPinned => {
+                 write!(f, "buffer pool full: all frames are pinned")
+             }
++            StorageError::UncommittedPagesPinned => {
++                write!(
++                    f,
++                    "buffer pool full of uncommitted pages: commit or enlarge the pool"
++                )
++            }
+             StorageError::Unsupported => {
+                 write!(f, "operation not supported by this backend")
+             }
+diff --git a/crates/tpt-archon-core/src/faultsim.rs b/crates/tpt-archon-core/src/faultsim.rs
+index ff736b0..1891df0 100644
+--- a/crates/tpt-archon-core/src/faultsim.rs
++++ b/crates/tpt-archon-core/src/faultsim.rs
+@@ -83,7 +83,7 @@ pub fn trial<D: BlockDevice + Clone>(
+             let page = vec![i as u8; crate::page::PAGE_SIZE];
+             e.write_page(i as u64, &page).unwrap();
+         }
+-        e.commit().unwrap();
++        e.commit_durable(|_| Ok(())).unwrap();
+         log = e.wal_bytes().to_vec();
+     }
+ 
+@@ -162,7 +162,7 @@ where
+                 let page = vec![i as u8; crate::page::PAGE_SIZE];
+                 e.write_page(i as u64, &page).unwrap();
+             }
+-            e.commit().unwrap();
++            e.commit_durable(|_| Ok(())).unwrap();
+             log = e.wal_bytes().to_vec();
+         }
+         let corrupted = fault.apply(&log);
+diff --git a/crates/tpt-archon-core/src/page.rs b/crates/tpt-archon-core/src/page.rs
+index 6f03456..e3c1323 100644
+--- a/crates/tpt-archon-core/src/page.rs
++++ b/crates/tpt-archon-core/src/page.rs
+@@ -144,6 +144,10 @@ pub struct BufferPool<D: BlockDevice> {
+     frames: Vec<Frame>,
+     /// LRU order of *frame indices*: front = least recently used.
+     lru: VecDeque<usize>,
++    /// Whether a dirty frame may be written back to the device to make room
++    /// (steal). When `false` (no-steal) only clean frames are evicted, so the
++    /// device never holds a page image that has not been committed.
++    steal: bool,
+ }
+ 
+ impl<D: BlockDevice> BufferPool<D> {
+@@ -163,9 +167,34 @@ impl<D: BlockDevice> BufferPool<D> {
+             capacity,
+             frames: Vec::new(),
+             lru: VecDeque::new(),
++            steal: true,
+         }
+     }
+ 
++    /// Switches the pool to no-steal: dirty frames are never written back to
++    /// the device by eviction. A caller that needs more room than the clean
++    /// frames provide gets [`StorageError::UncommittedPagesPinned`] instead,
++    /// and must commit (flush) before retrying.
++    pub fn no_steal(mut self) -> Self {
++        self.steal = false;
++        self
++    }
++
++    /// The underlying device, read-only.
++    pub fn device(&self) -> &D {
++        &self.device
++    }
++
++    /// Ensures a frame can be assigned to `block_id` without writing anything
++    /// that is not already allowed to be written. Returns an error, and changes
++    /// no frame contents, when the pool has no room.
++    pub fn reserve(&mut self, block_id: BlockId) -> Result<(), StorageError> {
++        if self.find(block_id).is_none() {
++            self.acquire_frame()?;
++        }
++        Ok(())
++    }
++
+     /// Number of frames currently resident.
+     pub fn resident(&self) -> usize {
+         self.frames.len()
+@@ -194,11 +223,11 @@ impl<D: BlockDevice> BufferPool<D> {
+     /// dirty. Returns the evicted frame index, or `None` if every frame is
+     /// pinned.
+     fn evict(&mut self) -> Result<Option<usize>, StorageError> {
+-        let victim = self
+-            .lru
+-            .iter()
+-            .copied()
+-            .find(|&i| !matches!(self.frames[i].state, PageState::Pinned(_)));
++        let steal = self.steal;
++        let victim = self.lru.iter().copied().find(|&i| {
++            let state = self.frames[i].state;
++            !matches!(state, PageState::Pinned(_)) && (steal || state != PageState::Dirty)
++        });
+         let Some(idx) = victim else {
+             return Ok(None);
+         };
+@@ -308,6 +337,9 @@ impl<D: BlockDevice> BufferPool<D> {
+         // Otherwise evict.
+         match self.evict()? {
+             Some(idx) => Ok(idx),
++            None if self.frames.iter().any(|f| f.state == PageState::Dirty) => {
++                Err(StorageError::UncommittedPagesPinned)
++            }
+             None => Err(StorageError::AllFramesPinned),
+         }
+     }
+diff --git a/crates/tpt-archon-core/src/storage.rs b/crates/tpt-archon-core/src/storage.rs
+index 54e9312..1668743 100644
+--- a/crates/tpt-archon-core/src/storage.rs
++++ b/crates/tpt-archon-core/src/storage.rs
+@@ -20,6 +20,12 @@ use std::io::{Read, Seek, Write};
+ 
+ /// A storage engine: a buffer pool whose page modifications are first recorded
+ /// in a write-ahead log.
++///
++/// The pool is no-steal: a page modified since the last commit is never written
++/// to the device by eviction. So the device only ever holds committed page
++/// images, and recovery never has to undo anything. The cost is that a batch
++/// must fit in the pool: a write that would need an uncommitted page evicted
++/// fails with [`StorageError::UncommittedPagesPinned`] before anything is logged.
+ pub struct StorageEngine<D: BlockDevice> {
+     pool: BufferPool<D>,
+     wal: Wal,
+@@ -29,7 +35,7 @@ impl<D: BlockDevice> StorageEngine<D> {
+     /// Creates an engine over `device`, caching at most `capacity` pages.
+     pub fn new(device: D, capacity: usize) -> Self {
+         Self {
+-            pool: BufferPool::new(device, capacity),
++            pool: BufferPool::new(device, capacity).no_steal(),
+             wal: Wal::new(),
+         }
+     }
+@@ -40,7 +46,11 @@ impl<D: BlockDevice> StorageEngine<D> {
+     /// Writes `page` (exactly [`PAGE_SIZE`] bytes) to `block_id`, recording the
+     /// change in the WAL *first* (the write-ahead invariant) and then staging it
+     /// in the buffer pool. The mutation is not durable until
+-    /// [`commit`](StorageEngine::commit) flushes both log and page.
++    /// [`commit_durable`](StorageEngine::commit_durable) persists the log and
++    /// flushes the page.
++    ///
++    /// On error nothing is left behind: no log record survives, so a later
++    /// commit cannot make a failed write durable.
+     pub fn write_page(&mut self, block_id: BlockId, page: &[u8]) -> Result<(), StorageError> {
+         if page.len() != PAGE_SIZE {
+             return Err(StorageError::ShortWrite {
+@@ -48,12 +58,31 @@ impl<D: BlockDevice> StorageEngine<D> {
+                 expected: PAGE_SIZE,
+             });
+         }
+-        // Write-ahead: log the full page image before touching main storage.
++        let block_count = self.pool.device().block_count();
++        if block_id >= block_count {
++            return Err(StorageError::OutOfBounds {
++                block_id,
++                block_count,
++            });
++        }
++        // Make room first, without writing anything: fails here, before the log
++        // is touched, if the pool holds only uncommitted pages.
++        self.pool.reserve(block_id)?;
++
++        // Write-ahead: log the full page image before touching the frame.
++        let (log_len, log_lsn) = (self.wal.as_bytes().len(), self.wal.next_lsn());
+         self.wal.append(RecordKind::PageWrite, block_id, page);
+-        let frame = self.pool.fetch_mut(block_id)?;
+-        frame.as_bytes_mut().copy_from_slice(page);
+-        self.pool.unpin(block_id);
+-        Ok(())
++        match self.pool.fetch_mut(block_id) {
++            Ok(frame) => {
++                frame.as_bytes_mut().copy_from_slice(page);
++                self.pool.unpin(block_id);
++                Ok(())
++            }
++            Err(e) => {
++                self.wal.truncate(log_len, log_lsn);
++                Err(e)
++            }
++        }
+     }
+ 
+     /// Reads `block_id` through the buffer pool (loaded from the device on a
+@@ -70,14 +99,14 @@ impl<D: BlockDevice> StorageEngine<D> {
+     /// caller (see the `Database` std facade, which fsyncs the WAL sidecar file
+     /// *before* flushing the data device so the write-ahead invariant holds at
+     /// the fsync boundary, not just logically).
+-    pub fn append_commit(&mut self) -> Result<(), StorageError> {
++    pub(crate) fn append_commit(&mut self) -> Result<(), StorageError> {
+         self.wal.append(RecordKind::Commit, 0, &[]);
+         Ok(())
+     }
+ 
+     /// Flushes all dirty pool frames to the device and syncs it (the data-
+     /// durable half of a commit).
+-    pub fn flush_data(&mut self) -> Result<(), StorageError> {
++    pub(crate) fn flush_data(&mut self) -> Result<(), StorageError> {
+         self.pool.flush_all()
+     }
+ 
+@@ -88,13 +117,29 @@ impl<D: BlockDevice> StorageEngine<D> {
+         self.wal = Wal::new();
+     }
+ 
+-    /// Commits the current batch of writes: appends a commit marker and flushes
+-    /// the data device. The WAL remains in-memory; callers wanting a durable,
+-    /// fsynced log (crash-recoverable file database) must persist
+-    /// [`wal_bytes`](StorageEngine::wal_bytes) to a sidecar and fsync it
+-    /// *before* calling this (see the `Database` std facade).
+-    pub fn commit(&mut self) -> Result<(), StorageError> {
++    /// Commits the current batch of writes in the order write-ahead logging
++    /// requires:
++    ///
++    /// 1. append a `Commit` marker to the log;
++    /// 2. pass the complete log to `persist`, which must make it durable (for
++    ///    example write it to a sidecar file and fsync it);
++    /// 3. flush the dirty pages to the device.
++    ///
++    /// Step 2 is a closure so that the caller cannot flush before persisting.
++    /// If `persist` fails, the commit marker is removed again, so the batch stays
++    /// uncommitted and a later commit cannot make it durable behind the caller's
++    /// back. If the flush fails after `persist` succeeded, the batch is committed
++    /// and [`recover`](Self::recover) will replay it.
++    pub fn commit_durable<F>(&mut self, persist: F) -> Result<(), StorageError>
++    where
++        F: FnOnce(&[u8]) -> Result<(), StorageError>,
++    {
++        let (log_len, log_lsn) = (self.wal.as_bytes().len(), self.wal.next_lsn());
+         self.append_commit()?;
++        if let Err(e) = persist(self.wal.as_bytes()) {
++            self.wal.truncate(log_len, log_lsn);
++            return Err(e);
++        }
+         self.flush_data()
+     }
+ 
+@@ -112,7 +157,7 @@ impl<D: BlockDevice> StorageEngine<D> {
+     /// A `PageWrite` is only applied once an intact `Commit`/`Checkpoint`
+     /// record for it is seen later in the log; any `PageWrite`s with no such
+     /// record following them (a crash between [`write_page`](Self::write_page)
+-    /// and [`commit`](Self::commit) leaves a fully-formed, non-torn
++    /// and [`commit_durable`](Self::commit_durable) leaves a fully-formed, non-torn
+     /// `PageWrite` record with no trailing commit marker) are dropped, same as
+     /// a torn/corrupt tail is. After recovery the device reflects exactly the
+     /// durable, committed writes.
+@@ -151,6 +196,8 @@ impl<D: BlockDevice> StorageEngine<D> {
+ mod tests {
+     use super::*;
+     use crate::block::InMemoryBlockDevice;
++    use alloc::rc::Rc;
++    use core::cell::Cell;
+ 
+     fn page_of(byte: u8) -> alloc::vec::Vec<u8> {
+         alloc::vec![byte; PAGE_SIZE]
+@@ -169,7 +216,7 @@ mod tests {
+         e.write_page(1, &page_of(0x11)).unwrap();
+         // WAL carries the PageWrite record; committing makes it durable.
+         assert!(!e.wal_bytes().is_empty());
+-        e.commit().unwrap();
++        e.commit_durable(|_| Ok(())).unwrap();
+ 
+         // The WAL prefix must contain the full page image.
+         let log = e.wal_bytes().to_vec();
+@@ -194,7 +241,7 @@ mod tests {
+             let mut e = StorageEngine::new(dev.clone(), 2);
+             e.write_page(0, &page_of(0x01)).unwrap();
+             e.write_page(2, &page_of(0x02)).unwrap();
+-            e.commit().unwrap();
++            e.commit_durable(|_| Ok(())).unwrap();
+             log = e.wal_bytes().to_vec();
+         }
+ 
+@@ -219,7 +266,7 @@ mod tests {
+         let dev = InMemoryBlockDevice::new(4);
+         let mut e = StorageEngine::new(dev.clone(), 2);
+         e.write_page(0, &page_of(0x07)).unwrap();
+-        e.commit().unwrap();
++        e.commit_durable(|_| Ok(())).unwrap();
+         let mut log = e.wal_bytes().to_vec();
+         // Corrupt the tail so only the valid prefix survives.
+         let len = log.len();
+@@ -249,7 +296,7 @@ mod tests {
+         {
+             let mut e = StorageEngine::new(dev.clone(), 2);
+             e.write_page(0, &page_of(0x01)).unwrap();
+-            e.commit().unwrap();
++            e.commit_durable(|_| Ok(())).unwrap();
+             // A second write with no matching commit — simulates a crash
+             // between `write_page` and `commit`.
+             e.write_page(1, &page_of(0x02)).unwrap();
+@@ -264,6 +311,125 @@ mod tests {
+         // the device — this reads back the zero-initialized default.
+         assert_eq!(e2.read_page(1).unwrap()[0], 0x00);
+     }
++
++    /// Counts device writes so tests can see when data reaches the device.
++    struct CountingDevice {
++        inner: InMemoryBlockDevice,
++        writes: Rc<Cell<usize>>,
++    }
++
++    impl BlockDevice for CountingDevice {
++        fn read_block(
++            &self,
++            block_id: crate::block::BlockId,
++            buffer: &mut [u8],
++        ) -> Result<(), StorageError> {
++            self.inner.read_block(block_id, buffer)
++        }
++        fn write_block(
++            &mut self,
++            block_id: crate::block::BlockId,
++            data: &[u8],
++        ) -> Result<(), StorageError> {
++            self.writes.set(self.writes.get() + 1);
++            self.inner.write_block(block_id, data)
++        }
++        fn sync(&mut self) -> Result<(), StorageError> {
++            self.inner.sync()
++        }
++        fn block_count(&self) -> u64 {
++            self.inner.block_count()
++        }
++    }
++
++    fn counting(blocks: u64) -> (CountingDevice, Rc<Cell<usize>>) {
++        let writes = Rc::new(Cell::new(0));
++        let dev = CountingDevice {
++            inner: InMemoryBlockDevice::new(blocks),
++            writes: writes.clone(),
++        };
++        (dev, writes)
++    }
++
++    #[test]
++    fn no_steal_refuses_to_evict_an_uncommitted_page() {
++        let (dev, writes) = counting(4);
++        let mut e = StorageEngine::new(dev, 1);
++        e.write_page(0, &page_of(0x01)).unwrap();
++        let log_before = e.wal_bytes().len();
++
++        // The only frame holds an uncommitted page: writing another block would
++        // need that page written to the device, so the write is refused.
++        assert_eq!(
++            e.write_page(1, &page_of(0x02)),
++            Err(StorageError::UncommittedPagesPinned)
++        );
++        assert_eq!(
++            e.wal_bytes().len(),
++            log_before,
++            "refused write leaves no log record"
++        );
++        assert_eq!(writes.get(), 0, "nothing reached the device");
++
++        // Once the batch is committed the pool has room again.
++        e.commit_durable(|_| Ok(())).unwrap();
++        e.write_page(1, &page_of(0x02)).unwrap();
++    }
++
++    #[test]
++    fn commit_persists_the_log_before_any_data_is_flushed() {
++        let (dev, writes) = counting(4);
++        let mut e = StorageEngine::new(dev, 4);
++        e.write_page(0, &page_of(0x07)).unwrap();
++
++        let mut writes_when_persisted = None;
++        e.commit_durable(|log| {
++            writes_when_persisted = Some(writes.get());
++            assert!(!log.is_empty(), "the persisted log includes the commit");
++            Ok(())
++        })
++        .unwrap();
++
++        assert_eq!(
++            writes_when_persisted,
++            Some(0),
++            "no data reached the device before the log was persisted"
++        );
++        assert!(writes.get() > 0, "the data is flushed after persisting");
++    }
++
++    #[test]
++    fn failed_persist_withdraws_the_commit_marker() {
++        let (dev, writes) = counting(4);
++        let mut e = StorageEngine::new(dev, 4);
++        e.write_page(0, &page_of(0x07)).unwrap();
++
++        assert_eq!(
++            e.commit_durable(|_| Err(StorageError::SyncFailed)),
++            Err(StorageError::SyncFailed)
++        );
++        assert_eq!(writes.get(), 0, "a failed commit flushes nothing");
++
++        // The log now ends with the write, not with a commit marker, so a later
++        // commit is the first thing that can make this write durable.
++        let mut last = None;
++        Wal::from_bytes(e.wal_bytes()).replay(|r| last = Some(r.kind));
++        assert_eq!(last, Some(RecordKind::PageWrite));
++
++        e.commit_durable(|_| Ok(())).unwrap();
++        assert!(writes.get() > 0);
++    }
++
++    #[test]
++    fn out_of_bounds_write_is_refused_before_logging() {
++        let mut e = StorageEngine::new(InMemoryBlockDevice::new(2), 2);
++        let before = e.wal_bytes().len();
++        assert!(matches!(
++            e.write_page(9, &page_of(1)),
++            Err(StorageError::OutOfBounds { block_id: 9, .. })
++        ));
++        assert_eq!(e.wal_bytes().len(), before);
++    }
+ }
+ 
+ /// A file-backed database handle: the "embeddable SQLite" entry point.
+diff --git a/crates/tpt-archon-core/src/wal.rs b/crates/tpt-archon-core/src/wal.rs
+index 5c59047..aaf0e30 100644
+--- a/crates/tpt-archon-core/src/wal.rs
++++ b/crates/tpt-archon-core/src/wal.rs
+@@ -191,6 +191,14 @@ impl Wal {
+         self.next_lsn
+     }
+ 
++    /// Drops every record from `byte_len` on and restores `next_lsn`. Used to
++    /// withdraw a record whose operation failed, so that a later commit cannot
++    /// make a write the caller was told had failed become durable.
++    pub(crate) fn truncate(&mut self, byte_len: usize, next_lsn: Lsn) {
++        self.bytes.truncate(byte_len);
++        self.next_lsn = next_lsn;
++    }
++
+     /// The raw log bytes, suitable for persisting to a device.
+     pub fn as_bytes(&self) -> &[u8] {
+         &self.bytes
+-- 
+2.40.1.windows.1
+

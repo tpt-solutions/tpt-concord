@@ -3,6 +3,10 @@
 Checked against `tpt-solutions/tpt-archon` at commit
 `928c00dec13560844a52222e3d02107516a7c09d`.
 
+**Status:** both defects are fixed on branch `fix/storage-no-steal-commit-order`
+in the Archon repo (commit `09a67c0`). That branch is not yet on GitHub, so
+the pilot still pins `928c00d`. See "Fix" at the end.
+
 Written for: Archon maintainers. The method, the spec and the reproduction are
 in `crates/tpt-concord-pilot-archon-wal/tests/archon_storage.rs`.
 
@@ -100,3 +104,22 @@ cargo test -p tpt-concord-pilot-archon-wal --test archon_storage
 
 The two defect tests pass while the defects are present. They assert the
 defect and will fail once it is fixed. That is the signal to flip them.
+
+## Fix
+
+Commit `09a67c0` on `fix/storage-no-steal-commit-order` in `tpt-archon`:
+
+- `StorageEngine` uses a no-steal buffer pool. Eviction never writes a dirty,
+  uncommitted page, and a write that would need one fails with
+  `UncommittedPagesPinned` before anything is logged.
+- `commit()` is replaced by `commit_durable(persist)`, which appends the commit
+  marker, persists the log, then flushes. If `persist` fails the marker is
+  withdrawn.
+- `write_page` checks bounds and reserves a frame before logging, and withdraws
+  its record if staging fails.
+
+The workspace gate passes on the branch: fmt, clippy with `-D warnings`, 314
+tests, the `no_std` build and the publish dry run. Concord's harness passes
+against the fixed branch (7 tests, exhaustive sweep, no mismatches), with
+refused writes exercised under eviction pressure.
+

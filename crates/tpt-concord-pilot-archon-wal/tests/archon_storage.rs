@@ -3,54 +3,48 @@
 
 //! Concord against the real Archon storage engine (spec §11 / §12).
 //!
-//! The implementation under test is `tpt-archon-core` at a pinned commit
-//! (see the dev-dependency in `Cargo.toml`), not a model written here.
+//! The implementation under test is `tpt-archon-core` at a pinned commit (see
+//! the dev-dependency in `Cargo.toml`), not a model written here.
 //!
 //! The specification is written from Archon's documented contract:
 //!
 //! > After recovery the device reflects exactly the durable, committed writes.
 //!
 //! "Durable" means the write's `Commit` record is intact in the log that
-//! survived the crash. The crash model is: the log is cut at an arbitrary
-//! byte offset, and the data device is whatever a file-backed device held
-//! when the process died.
+//! survived the crash. The crash model is the sidecar protocol that
+//! `Database::put` follows: the log is persisted before data is flushed, and a
+//! crash leaves the device image as it was and the log as far as it had been
+//! persisted.
 //!
-//! Findings this file pins. Each is a test that passes while the defect is
-//! present, so the suite stays green and a fix makes the test fail, which is
-//! the signal to flip it:
+//! The check is a bounded exhaustive sweep. Every operation sequence up to
+//! length [`MAX_LEN`] is run through the real engine, and recovery is checked
+//! at each crash point. The crash points are: after each write, after a commit
+//! marker is written but before it is persisted, after it is persisted but
+//! before the flush, and after the flush.
 //!
-//! - `eviction_leaves_uncommitted_data_on_the_device`: the buffer pool writes
-//!   dirty pages back before commit, and recovery is redo-only, so uncommitted
-//!   data stays on the device after recovery.
-//! - `raw_commit_flushes_data_before_the_log_is_durable`: `StorageEngine::commit`
-//!   flushes data before the caller can persist the commit record. The
-//!   `Database` facade avoids this by persisting the log first.
-//!
-//! The check is a bounded exhaustive sweep: every operation sequence up to
-//! length [`MAX_LEN`], every cut point that matters (each record's start,
-//! first byte, last byte and end), and two buffer-pool sizes:
-//!
-//! - capacity 4 holds both blocks, so nothing is evicted before a commit;
-//! - capacity 1 forces dirty-page eviction, i.e. a steal policy.
+//! History: the first sweep (against `928c00d`) found two defects, both fixed
+//! upstream: uncommitted pages evicted to the device survived recovery, and
+//! `StorageEngine::commit` flushed data before the log was persisted. This file
+//! pins the fixed behaviour. A regression fails it.
 
 use std::path::{Path, PathBuf};
 
-use tpt_archon_core::block::FileBlockDevice;
+use tpt_archon_core::block::{FileBlockDevice, StorageError};
 use tpt_archon_core::page::PAGE_SIZE;
 use tpt_archon_core::storage::StorageEngine;
-use tpt_concord_check::Counterexample;
 use tpt_concord_core::{
     AssuranceGraph, AssuranceLevel, Claim, ClaimID, EvidenceID, EvidenceKind, EvidenceRecord,
-    ImplementationID, Obligation, ObligationID, Scope, ScopeID, SpecificationID,
+    Obligation, ObligationID, Scope, ScopeID,
 };
 use tpt_concord_evidence::{EvidenceBundleBuilder, Section, ToolchainIdentity};
 use tpt_concord_release::{evaluate, GateDecision, Policy, RejectionReason};
-use tpt_concord_spec::{Violation, ViolationKind};
-use tpt_concord_trace::TraceBuilder;
 
 /// Longest operation sequence swept exhaustively.
 const MAX_LEN: usize = 4;
 const BLOCKS: u64 = 2;
+
+/// The Archon revision under test. Keep in sync with the dev-dependency.
+const ARCHON_REV: &str = "928c00dec13560844a52222e3d02107516a7c09d";
 
 /// Archon's on-disk framing (`wal.rs`): u32 length, u64 lsn, u8 kind, u64
 /// block id, u32 payload length, payload, u32 crc. A `Commit` has no payload.
@@ -69,6 +63,17 @@ const ALPHABET: [Op; 5] = [
     Op::Write { block: 1, value: 2 },
     Op::Commit,
 ];
+
+/// How the caller makes the log durable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Protocol {
+    /// Commits go through `commit_durable`. Writes are not persisted on their
+    /// own, which is what `Database::put` does.
+    Sidecar,
+    /// The log is persisted after every write as well as at commits. Recovery
+    /// must then drop uncommitted writes that are durable in the log.
+    PersistEachWrite,
+}
 
 /// Byte length of each record a sequence produces, in log order.
 fn record_lengths(ops: &[Op]) -> Vec<usize> {
@@ -132,21 +137,6 @@ fn sequences(max_len: usize) -> Vec<Vec<Op>> {
     out
 }
 
-/// How the caller drives the engine and when it makes the log durable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Protocol {
-    /// The sidecar protocol `Database::put` follows: a commit appends its
-    /// marker, the log is persisted, and only then is data flushed.
-    Caller,
-    /// The raw `StorageEngine::commit()`: it flushes data itself, so the
-    /// caller can only persist the log after the data is already on the device.
-    RawCommit,
-    /// The log is persisted after every write, not only at commits. Recovery
-    /// must then drop uncommitted `PageWrite` records that are durable in the
-    /// log but have no following `Commit`.
-    PersistEachWrite,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Mismatch {
     ops: Vec<Op>,
@@ -156,97 +146,26 @@ struct Mismatch {
     actual: [u8; BLOCKS as usize],
 }
 
+#[derive(Debug, Default)]
 struct Sweep {
+    /// Crash points checked.
     checked: usize,
+    /// Writes the engine refused because the pool held only uncommitted pages.
+    refused: usize,
     mismatches: Vec<Mismatch>,
 }
 
-/// Run every sequence through the real engine. After each operation the
-/// process "crashes": the device image is whatever the file holds, and the
-/// durable log is the prefix the caller had persisted by then. Recovery from
-/// that pair must equal the committed state of that prefix.
-fn sweep(capacity: usize, protocol: Protocol, max_len: usize, dir: &Path) -> Sweep {
-    let image_path = dir.join("image.bin");
-    let mut checked = 0usize;
-    let mut mismatches = Vec::new();
-
-    for ops in sequences(max_len) {
-        let _ = std::fs::remove_file(&image_path);
-        let device = FileBlockDevice::create(&image_path, BLOCKS).expect("create image");
-        let mut engine = StorageEngine::new(device, capacity);
-        let mut durable_len = 0usize;
-
-        for k in 0..ops.len() {
-            let prefix = &ops[..=k];
-            match ops[k] {
-                Op::Write { block, value } => {
-                    engine
-                        .write_page(block as u64, &page(value))
-                        .expect("write_page");
-                    if protocol == Protocol::PersistEachWrite {
-                        durable_len = engine.wal_bytes().len();
-                    }
-                    checked += 1;
-                    if let Some(m) = crash_check(&engine, &image_path, durable_len, prefix) {
-                        mismatches.push(m);
-                    }
-                }
-                Op::Commit => match protocol {
-                    Protocol::Caller | Protocol::PersistEachWrite => {
-                        engine.append_commit().expect("append_commit");
-                        // Crash with the commit marker written but not yet
-                        // persisted: the writes before it are durable, the
-                        // commit is not, so none of them may survive.
-                        checked += 1;
-                        if let Some(m) = crash_check(&engine, &image_path, durable_len, prefix) {
-                            mismatches.push(m);
-                        }
-                        let persisted = engine.wal_bytes().len();
-                        engine.flush_data().expect("flush_data");
-                        durable_len = persisted;
-                        checked += 1;
-                        if let Some(m) = crash_check(&engine, &image_path, durable_len, prefix) {
-                            mismatches.push(m);
-                        }
-                    }
-                    Protocol::RawCommit => {
-                        // `commit()` is `append_commit()` then `flush_data()`.
-                        // The caller can only persist the log after it
-                        // returns, so the crash window is the flush itself.
-                        engine.append_commit().expect("append_commit");
-                        engine.flush_data().expect("flush_data");
-                        checked += 1;
-                        if let Some(m) = crash_check(&engine, &image_path, durable_len, prefix) {
-                            mismatches.push(m);
-                        }
-                        durable_len = engine.wal_bytes().len();
-                        checked += 1;
-                        if let Some(m) = crash_check(&engine, &image_path, durable_len, prefix) {
-                            mismatches.push(m);
-                        }
-                    }
-                },
-            }
-        }
-    }
-    Sweep {
-        checked,
-        mismatches,
-    }
-}
-
-/// Crash now: the device image is whatever the file holds, and the durable
-/// log is the first `durable_len` bytes. Recover from that pair and compare
-/// with the committed state of the operations so far.
+/// Crash now: the device image is whatever the file holds, and `log` is the
+/// durable part of the log. Recover from that pair and compare with the
+/// committed state of the operations in `prefix`.
 fn crash_check(
-    engine: &StorageEngine<FileBlockDevice>,
     image_path: &Path,
+    log: &[u8],
     durable_len: usize,
     prefix: &[Op],
 ) -> Option<Mismatch> {
     let record_path = image_path.with_file_name("recovered.bin");
     let image = std::fs::read(image_path).expect("image");
-    let log = &engine.wal_bytes()[..durable_len];
     std::fs::write(&record_path, &image).expect("write image copy");
     let device = FileBlockDevice::open(&record_path).expect("reopen image");
     let mut recovered = StorageEngine::new(device, BLOCKS as usize);
@@ -266,58 +185,97 @@ fn crash_check(
     })
 }
 
-/// Render an operation sequence as a short human-readable label.
-fn label(ops: &[Op]) -> String {
-    ops.iter()
-        .map(|op| match op {
-            Op::Write { block, value } => format!("write(b{block}={value})"),
-            Op::Commit => "commit".to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("; ")
+/// Run every sequence through the real engine with pool capacity `capacity`,
+/// checking recovery at every crash point against the specification.
+fn sweep(capacity: usize, protocol: Protocol, max_len: usize, dir: &Path) -> Sweep {
+    let image_path = dir.join("image.bin");
+    let mut out = Sweep::default();
+
+    for ops in sequences(max_len) {
+        let _ = std::fs::remove_file(&image_path);
+        let device = FileBlockDevice::create(&image_path, BLOCKS).expect("create image");
+        let mut engine = StorageEngine::new(device, capacity);
+        let mut durable_len = 0usize;
+
+        for k in 0..ops.len() {
+            let prefix = &ops[..=k];
+            match ops[k] {
+                Op::Write { block, value } => {
+                    if let Err(e) = engine.write_page(block as u64, &page(value)) {
+                        // Only the no-steal refusal is expected. The refused
+                        // write is not part of the batch, so check the prefix
+                        // before it and end the sequence.
+                        assert_eq!(e, StorageError::UncommittedPagesPinned, "unexpected error");
+                        out.refused += 1;
+                        out.checked += 1;
+                        let log = &engine.wal_bytes()[..durable_len];
+                        out.mismatches.extend(crash_check(
+                            &image_path,
+                            log,
+                            durable_len,
+                            &ops[..k],
+                        ));
+                        break;
+                    }
+                    if protocol == Protocol::PersistEachWrite {
+                        durable_len = engine.wal_bytes().len();
+                    }
+                    out.checked += 1;
+                    let log = &engine.wal_bytes()[..durable_len];
+                    out.mismatches
+                        .extend(crash_check(&image_path, log, durable_len, prefix));
+                }
+                Op::Commit => {
+                    let before = durable_len;
+                    engine
+                        .commit_durable(|log| {
+                            // Crash after the marker is written, before it is
+                            // persisted: the batch is not durable, and the
+                            // device has not been flushed yet.
+                            out.checked += 1;
+                            out.mismatches.extend(crash_check(
+                                &image_path,
+                                &log[..before],
+                                before,
+                                prefix,
+                            ));
+                            // Crash after the log is persisted, before the
+                            // flush: the batch is durable, the device is old.
+                            durable_len = log.len();
+                            out.checked += 1;
+                            out.mismatches.extend(crash_check(
+                                &image_path,
+                                &log[..durable_len],
+                                durable_len,
+                                prefix,
+                            ));
+                            Ok(())
+                        })
+                        .expect("commit_durable");
+                    // Crash after the flush.
+                    out.checked += 1;
+                    let log = &engine.wal_bytes()[..durable_len];
+                    out.mismatches
+                        .extend(crash_check(&image_path, log, durable_len, prefix));
+                }
+            }
+        }
+    }
+    out
 }
 
-/// Turn a mismatch into Concord's counterexample object. The input is the
-/// operation sequence, the trace records the surviving log cut, and the
-/// violation names the broken obligation.
-fn counterexample(m: &Mismatch, capacity: usize, protocol: Protocol) -> Counterexample {
-    let mut trace = TraceBuilder::new();
-    trace.event(
-        "crash",
-        serde_json::json!({
-            "durable_log_bytes": m.durable_len,
-            "buffer_pool_capacity": capacity,
-            "protocol": format!("{protocol:?}"),
-        }),
-    );
-    let mut env = std::collections::BTreeMap::new();
-    env.insert("buffer_pool_capacity".into(), capacity.to_string());
-    env.insert("protocol".into(), format!("{protocol:?}"));
-    env.insert("archon_rev".into(), ARCHON_REV.into());
-    Counterexample::new(
-        format!(
-            "cx.archon.recovery.{protocol:?}.cap{capacity}.log{}",
-            m.durable_len
-        ),
-        SpecificationID::new("spec.archon.recovery").unwrap(),
-        ImplementationID::new("impl.archon-core").unwrap(),
-        None,
-        serde_json::json!({ "ops": label(&m.ops) }),
-        trace.finish(),
-        env,
-        Violation::new(
-            ViolationKind::Invariant,
-            "recovery-matches-committed-state",
-            format!(
-                "after recovery block contents are {:?}, the committed state is {:?}",
-                m.actual, m.expected
-            ),
-        ),
-    )
+fn summary(capacity: usize, protocol: Protocol, max_len: usize, s: &Sweep) -> String {
+    serde_json::json!({
+        "archon_rev": ARCHON_REV,
+        "buffer_pool_capacity": capacity,
+        "protocol": format!("{protocol:?}"),
+        "max_sequence_length": max_len,
+        "crash_points_checked": s.checked,
+        "writes_refused_no_steal": s.refused,
+        "mismatches": s.mismatches.len(),
+    })
+    .to_string()
 }
-
-/// The Archon revision under test. Keep in sync with the dev-dependency.
-const ARCHON_REV: &str = "928c00dec13560844a52222e3d02107516a7c09d";
 
 #[test]
 fn spec_framing_matches_archon_record_sizes() {
@@ -327,7 +285,7 @@ fn spec_framing_matches_archon_record_sizes() {
     let device = FileBlockDevice::create(&image, BLOCKS).unwrap();
     let mut engine = StorageEngine::new(device, 4);
     engine.write_page(0, &page(7)).unwrap();
-    engine.commit().unwrap();
+    engine.commit_durable(|_| Ok(())).unwrap();
     assert_eq!(
         engine.wal_bytes().len(),
         record_lengths(&ops).iter().sum::<usize>()
@@ -335,17 +293,18 @@ fn spec_framing_matches_archon_record_sizes() {
 }
 
 #[test]
-fn sidecar_protocol_without_eviction_matches_the_spec() {
-    let dir = scratch("no-eviction");
-    let result = sweep(4, Protocol::Caller, MAX_LEN, &dir);
+fn sidecar_protocol_matches_the_spec_without_eviction() {
+    let dir = scratch("sidecar");
+    let result = sweep(4, Protocol::Sidecar, MAX_LEN, &dir);
     assert!(
         result.checked >= sequences(MAX_LEN).len(),
-        "every sequence should be checked at least once, checked {}",
+        "every sequence should be checked, checked {}",
         result.checked
     );
+    assert_eq!(result.refused, 0, "nothing is refused with room to spare");
     assert!(
         result.mismatches.is_empty(),
-        "{} mismatches without eviction, first: {:?}",
+        "{} mismatches, first: {:?}",
         result.mismatches.len(),
         result.mismatches.first()
     );
@@ -353,10 +312,9 @@ fn sidecar_protocol_without_eviction_matches_the_spec() {
 }
 
 #[test]
-fn persisting_each_write_tests_commit_gating_without_eviction() {
+fn persisting_each_write_tests_commit_gating() {
     // Uncommitted writes are durable in the log here, so recovery must drop
-    // them. Cuts that split commits are covered because the durable length
-    // moves after every record, not only at commits.
+    // them. The commit-marker crash points cover cuts that split a commit.
     let dir = scratch("persist-each");
     let result = sweep(4, Protocol::PersistEachWrite, MAX_LEN, &dir);
     assert!(
@@ -369,202 +327,175 @@ fn persisting_each_write_tests_commit_gating_without_eviction() {
 }
 
 #[test]
-fn eviction_leaves_uncommitted_data_on_the_device() {
-    let dir = scratch("eviction");
-    let result = sweep(1, Protocol::Caller, MAX_LEN, &dir);
-    assert!(
-        !result.mismatches.is_empty(),
-        "expected the eviction defect to reproduce"
-    );
-
-    // Sequences are enumerated shortest first, so the first mismatch is a
-    // minimal counterexample.
-    let minimal = &result.mismatches[0];
-    assert_eq!(
-        minimal.ops.len(),
-        2,
-        "minimal case: {}",
-        label(&minimal.ops)
-    );
-    assert!(
-        matches!(minimal.ops[..], [Op::Write { .. }, Op::Write { .. }]),
-        "minimal case should be two uncommitted writes: {}",
-        label(&minimal.ops)
-    );
-    assert_eq!(minimal.durable_len, 0, "nothing was persisted");
-    assert_eq!(minimal.expected, [0, 0], "nothing was committed");
-    assert_eq!(
-        minimal.actual[0], 1,
-        "the evicted, uncommitted write is still on the device after recovery"
-    );
-
-    let cx = counterexample(minimal, 1, Protocol::Caller);
-    let json = cx.to_json().expect("serializes");
-    let back = Counterexample::from_json(&json).expect("round-trips");
-    assert_eq!(back.id, cx.id);
+fn no_steal_refuses_eviction_and_keeps_the_device_clean() {
+    // With one frame, a second page can only come in by evicting the first,
+    // which is uncommitted. The engine must refuse it, and the device must
+    // stay consistent with the committed state at every crash point.
+    let dir = scratch("no-steal");
+    for protocol in [Protocol::Sidecar, Protocol::PersistEachWrite] {
+        let result = sweep(1, protocol, MAX_LEN, &dir);
+        assert!(
+            result.refused > 0,
+            "{protocol:?}: the eviction case must be exercised"
+        );
+        assert!(
+            result.mismatches.is_empty(),
+            "{protocol:?}: {} mismatches, first: {:?}",
+            result.mismatches.len(),
+            result.mismatches.first()
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn raw_commit_flushes_data_before_the_log_is_durable() {
-    let dir = scratch("raw-commit");
-    let result = sweep(4, Protocol::RawCommit, 2, &dir);
-    let minimal = result
-        .mismatches
-        .first()
-        .expect("raw commit() must reproduce the ordering hazard");
-    assert_eq!(
-        minimal.ops,
-        vec![Op::Write { block: 0, value: 1 }, Op::Commit],
-        "minimal case is one write and its commit"
-    );
-    assert_eq!(
-        minimal.durable_len, 0,
-        "the caller had not yet persisted the log"
-    );
-    assert_eq!(minimal.expected, [0, 0]);
-    assert_eq!(minimal.actual[0], 1, "the data reached the device first");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// Claims and evidence for the release decision.
-///
-/// The two claims differ only in scope: recovery with no eviction is backed
-/// by the exhaustive sweep, while recovery under eviction is not established.
+/// Claims and evidence for the release decision. The evidence records are
+/// built from the sweep results, so a failing sweep blocks the release.
 fn archon_graph(
-    no_eviction_passed: bool,
-    eviction_passed: bool,
-) -> (AssuranceGraph, ClaimID, ClaimID) {
+    sidecar_ok: bool,
+    no_steal_ok: bool,
+) -> (AssuranceGraph, ClaimID, ClaimID, ClaimID) {
     let mut g = AssuranceGraph::new();
-    let no_steal_scope = ScopeID::new("scope.archon.no-eviction").unwrap();
+    let scope = ScopeID::new("scope.archon.crash-model").unwrap();
     g.add_scope(Scope::new(
-        no_steal_scope.clone(),
-        "Buffer pool never evicts a dirty page before the commit that covers it",
+        scope.clone(),
+        "A crash leaves the device image as it was and the log as far as it was persisted",
     ))
     .unwrap();
 
-    let no_steal = ClaimID::new("claim.archon.recovery.no-eviction").unwrap();
-    let mut c = Claim::new(
-        no_steal.clone(),
-        "Recovery restores exactly the committed writes when no dirty page is evicted before commit",
-    );
-    c.scopes.push(no_steal_scope);
-    g.add_claim(c).unwrap();
-    let ob1 = ObligationID::new("obligation.archon.recovery.sweep").unwrap();
-    g.add_obligation(Obligation::new(
-        ob1.clone(),
-        "Bounded exhaustive sweep over every operation sequence up to length 4 and every cut point",
-    ))
-    .unwrap();
-    g.require_obligation(
-        &ClaimID::new("claim.archon.recovery.no-eviction").unwrap(),
-        &ob1,
-    )
-    .unwrap();
-    let ev1 = EvidenceID::new("evidence.archon.recovery.sweep").unwrap();
-    let mut rec = EvidenceRecord::new(
-        ev1.clone(),
-        EvidenceKind::ModelCheck,
-        AssuranceLevel::ModelChecked,
-        "Exhaustive bounded sweep of the real tpt-archon-core engine (not a proof)",
-    );
-    if no_eviction_passed {
-        rec.validate();
-    } else {
-        rec.reject();
-    }
-    g.add_evidence(rec).unwrap();
-    g.discharge(&ob1, &ev1).unwrap();
+    let mut backed_claim = |id: &str, statement: &str, ob: &str, desc: &str, ok: bool| {
+        let claim_id = ClaimID::new(id).unwrap();
+        let mut c = Claim::new(claim_id.clone(), statement);
+        c.scopes.push(scope.clone());
+        g.add_claim(c).unwrap();
+        let ob_id = ObligationID::new(ob).unwrap();
+        g.add_obligation(Obligation::new(ob_id.clone(), desc))
+            .unwrap();
+        g.require_obligation(&claim_id, &ob_id).unwrap();
+        let ev_id = EvidenceID::new(format!("evidence.{ob}")).unwrap();
+        let mut rec = EvidenceRecord::new(
+            ev_id.clone(),
+            EvidenceKind::ModelCheck,
+            AssuranceLevel::ModelChecked,
+            "Exhaustive bounded sweep of the real tpt-archon-core engine (not a proof)",
+        );
+        if ok {
+            rec.validate();
+        } else {
+            rec.reject();
+        }
+        g.add_evidence(rec).unwrap();
+        g.discharge(&ob_id, &ev_id).unwrap();
+        claim_id
+    };
 
-    let general = ClaimID::new("claim.archon.recovery.general").unwrap();
+    let sidecar = backed_claim(
+        "claim.archon.recovery.sidecar",
+        "Recovery restores exactly the committed writes when batches are committed with commit_durable",
+        "obligation.archon.recovery.sidecar-sweep",
+        "Bounded exhaustive sweep, sidecar protocol, no eviction",
+        sidecar_ok,
+    );
+    let no_steal = backed_claim(
+        "claim.archon.recovery.no-steal",
+        "Recovery restores exactly the committed writes under buffer-pool pressure, because uncommitted pages are never written to the device",
+        "obligation.archon.recovery.no-steal-sweep",
+        "Bounded exhaustive sweep with one frame, which forces eviction attempts",
+        no_steal_ok,
+    );
+
+    // Not backed by any evidence. Nothing in the suite checks batches larger
+    // than the pool, so the claim must stay unestablished.
+    let large = ClaimID::new("claim.archon.recovery.large-batch").unwrap();
     g.add_claim(Claim::new(
-        general.clone(),
-        "Recovery restores exactly the committed writes under any buffer-pool policy",
+        large.clone(),
+        "Recovery restores committed batches larger than the buffer pool",
     ))
     .unwrap();
-    let ob2 = ObligationID::new("obligation.archon.recovery.eviction-sweep").unwrap();
+    let ob = ObligationID::new("obligation.archon.recovery.large-batch").unwrap();
     g.add_obligation(Obligation::new(
-        ob2.clone(),
-        "Bounded exhaustive sweep with dirty-page eviction (buffer capacity 1)",
+        ob.clone(),
+        "Sweep with batches larger than the pool",
     ))
     .unwrap();
-    g.require_obligation(&general, &ob2).unwrap();
-    let ev2 = EvidenceID::new("evidence.archon.recovery.eviction-sweep").unwrap();
-    let mut rec2 = EvidenceRecord::new(
-        ev2.clone(),
-        EvidenceKind::ModelCheck,
-        AssuranceLevel::ModelChecked,
-        "Eviction sweep: reproduces the device-state defect",
-    );
-    if eviction_passed {
-        rec2.validate();
-    } else {
-        rec2.reject();
-    }
-    g.add_evidence(rec2).unwrap();
-    g.discharge(&ob2, &ev2).unwrap();
+    g.require_obligation(&large, &ob).unwrap();
 
-    (g, no_steal, general)
+    (g, sidecar, no_steal, large)
 }
 
 #[test]
-fn release_gate_approves_the_scoped_claim_and_blocks_the_general_one() {
-    // The no-eviction sweep is clean; the eviction sweep found the defect.
-    let (graph, no_steal, general) = archon_graph(true, false);
-
-    let mut scoped = Policy::new("archon-no-eviction-release");
-    scoped.require_claim(no_steal.clone(), AssuranceLevel::ModelChecked);
-    assert!(
-        evaluate(&graph, &scoped).is_approved(),
-        "the scoped claim is supported by a clean sweep"
+fn release_gate_approves_the_backed_claims_and_blocks_the_unbacked_one() {
+    let dir = scratch("gate");
+    let sidecar = sweep(4, Protocol::Sidecar, MAX_LEN, &dir);
+    let no_steal = sweep(1, Protocol::PersistEachWrite, MAX_LEN, &dir);
+    let (graph, sidecar_id, no_steal_id, large_id) = archon_graph(
+        sidecar.mismatches.is_empty(),
+        no_steal.mismatches.is_empty(),
     );
 
-    let mut general_policy = Policy::new("archon-general-release");
-    general_policy.require_claim(general.clone(), AssuranceLevel::ModelChecked);
-    match evaluate(&graph, &general_policy) {
+    let mut backed = Policy::new("archon-release");
+    backed.require_claim(sidecar_id.clone(), AssuranceLevel::ModelChecked);
+    backed.require_claim(no_steal_id.clone(), AssuranceLevel::ModelChecked);
+    assert!(
+        evaluate(&graph, &backed).is_approved(),
+        "both sweeps are clean, so both claims are established"
+    );
+
+    let mut unbacked = Policy::new("archon-large-batch-release");
+    unbacked.require_claim(large_id.clone(), AssuranceLevel::ModelChecked);
+    match evaluate(&graph, &unbacked) {
         GateDecision::Rejected { reasons } => assert!(
             reasons.iter().any(|r| matches!(
                 r,
-                RejectionReason::ClaimUnestablished { claim, .. } if *claim == general
+                RejectionReason::ClaimUnestablished { claim, .. } if *claim == large_id
             )),
-            "expected the general claim to be unestablished: {reasons:?}"
+            "expected the unbacked claim to be unestablished: {reasons:?}"
         ),
-        GateDecision::Approved(_) => panic!("the defect must block the general release"),
+        GateDecision::Approved(_) => panic!("an unbacked claim must not pass the gate"),
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failing_sweep_blocks_the_release() {
+    // A sweep with a mismatch records its evidence as rejected, and the gate
+    // must refuse the claim. Simulated here by passing `false`.
+    let (graph, sidecar_id, _, _) = archon_graph(false, true);
+    let mut policy = Policy::new("archon-release");
+    policy.require_claim(sidecar_id.clone(), AssuranceLevel::ModelChecked);
+    match evaluate(&graph, &policy) {
+        GateDecision::Rejected { reasons } => assert!(reasons.iter().any(|r| matches!(
+            r,
+            RejectionReason::ClaimUnestablished { claim, .. } if *claim == sidecar_id
+        ))),
+        GateDecision::Approved(_) => panic!("a rejected sweep must block the release"),
     }
 }
 
 #[test]
-fn evidence_bundle_records_the_sweep_and_counterexample() {
+fn evidence_bundle_records_the_sweeps() {
     let dir = scratch("bundle");
-    let steal = sweep(1, Protocol::Caller, 2, &dir);
-    let minimal = steal.mismatches.first().expect("defect reproduces");
-    let cx_json = counterexample(minimal, 1, Protocol::Caller)
-        .to_json()
-        .unwrap();
+    let sidecar = sweep(4, Protocol::Sidecar, 2, &dir);
+    let no_steal = sweep(1, Protocol::PersistEachWrite, 2, &dir);
     let bundle_dir = dir.join("bundle");
     let bundle = EvidenceBundleBuilder::new("bundle.archon-storage")
         .toolchain(ToolchainIdentity::new("archon-core", ARCHON_REV))
         .artifact(
             Section::FuzzCampaigns,
-            EvidenceID::new("evidence.archon.recovery.eviction-sweep").unwrap(),
+            EvidenceID::new("evidence.archon.sweep.sidecar").unwrap(),
             EvidenceKind::Other("bounded_sweep".into()),
-            "eviction-sweep.json",
-            "Bounded sweep with buffer capacity 1 (max length 2)",
-            format!(
-                "{{\"checked\": {}, \"mismatches\": {}}}",
-                steal.checked,
-                steal.mismatches.len()
-            )
-            .into_bytes(),
+            "sidecar-sweep.json",
+            "Sidecar protocol, no eviction (max length 2)",
+            summary(4, Protocol::Sidecar, 2, &sidecar).into_bytes(),
         )
         .unwrap()
         .artifact(
-            Section::TestResults,
-            EvidenceID::new("evidence.archon.recovery.counterexample").unwrap(),
-            EvidenceKind::Other("counterexample".into()),
-            "counterexample.json",
-            "Minimal counterexample: uncommitted writes survive recovery on the device",
-            cx_json.into_bytes(),
+            Section::FuzzCampaigns,
+            EvidenceID::new("evidence.archon.sweep.no-steal").unwrap(),
+            EvidenceKind::Other("bounded_sweep".into()),
+            "no-steal-sweep.json",
+            "One frame, persist after each write (max length 2)",
+            summary(1, Protocol::PersistEachWrite, 2, &no_steal).into_bytes(),
         )
         .unwrap()
         .write(&bundle_dir)
