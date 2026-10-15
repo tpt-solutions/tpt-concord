@@ -1242,7 +1242,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 [[package]]
 name = "tpt-archon-core"
 version = "0.1.0"
-source = "git+https://github.com/tpt-solutions/tpt-archon?rev=928c00dec13560844a52222e3d02107516a7c09d#928c00dec13560844a52222e3d02107516a7c09d"
+source = "git+https://github.com/tpt-solutions/tpt-archon?rev=86ff808c5906d749558a4068bbed11629d566406#86ff808c5906d749558a4068bbed11629d566406"
 
 [[package]]
 name = "tpt-concord-assurance"

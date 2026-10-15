@@ -44,7 +44,7 @@ const MAX_LEN: usize = 4;
 const BLOCKS: u64 = 2;
 
 /// The Archon revision under test. Keep in sync with the dev-dependency.
-const ARCHON_REV: &str = "928c00dec13560844a52222e3d02107516a7c09d";
+const ARCHON_REV: &str = "86ff808c5906d749558a4068bbed11629d566406";
 
 /// Archon's on-disk framing (`wal.rs`): u32 length, u64 lsn, u8 kind, u64
 /// block id, u32 payload length, payload, u32 crc. A `Commit` has no payload.

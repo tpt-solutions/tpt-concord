@@ -4,8 +4,8 @@ Checked against `tpt-solutions/tpt-archon` at commit
 `928c00dec13560844a52222e3d02107516a7c09d`.
 
 **Status:** both defects are fixed on branch `fix/storage-no-steal-commit-order`
-in the Archon repo (commit `09a67c0`). That branch is not yet on GitHub, so
-the pilot still pins `928c00d`. See "Fix" at the end.
+of `tpt-solutions/tpt-archon` (commit `86ff808`). The pilot pins that commit.
+See "Fix" at the end.
 
 Written for: Archon maintainers. The method, the spec and the reproduction are
 in `crates/tpt-concord-pilot-archon-wal/tests/archon_storage.rs`.
@@ -107,7 +107,7 @@ defect and will fail once it is fixed. That is the signal to flip them.
 
 ## Fix
 
-Commit `09a67c0` on `fix/storage-no-steal-commit-order` in `tpt-archon`:
+Commit `86ff808` on `fix/storage-no-steal-commit-order` in `tpt-archon`:
 
 - `StorageEngine` uses a no-steal buffer pool. Eviction never writes a dirty,
   uncommitted page, and a write that would need one fails with

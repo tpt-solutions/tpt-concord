@@ -57,7 +57,7 @@ assert_eq!(r.read_page(0).unwrap()[0], 0x00); // fails: reads 0x01
 - `formal-proofs/wal.telos` has no eviction transition, so the proof does not
   cover this path.
 
-**Fix:** branch `fix/storage-no-steal-commit-order`, commit `09a67c0`. The
+**Fix:** branch `fix/storage-no-steal-commit-order`, commit `86ff808`. The
 pool becomes no-steal for `StorageEngine`. A write that would need an
 uncommitted page evicted fails with `UncommittedPagesPinned` before anything
 is logged.
