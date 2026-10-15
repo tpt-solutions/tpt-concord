@@ -47,31 +47,37 @@ where
         );
     }
 
-    let mut chunk = current.len().max(1) / 2;
-    while chunk >= 1 {
-        let mut i = 0;
-        while i < current.len() {
-            let end = (i + chunk).min(current.len());
-            let mut candidate: Vec<I> = Vec::with_capacity(current.len());
-            candidate.extend_from_slice(&current[..i]);
-            candidate.extend_from_slice(&current[end..]);
-            attempts += 1;
-            if still_fails(&candidate) {
-                current = candidate;
-                // Restart the scan at the same index with the shorter
-                // sequence, easing off the chunk size.
-                chunk = (chunk * 3) / 4;
-                if chunk == 0 {
-                    chunk = 1;
+    // Repeat the whole descent until a full round removes nothing: a removal
+    // that is only legal at one chunk size (e.g. an open/close pair) can
+    // become available after later removals shrink the sequence.
+    loop {
+        let len_before = current.len();
+        let mut chunk = current.len().max(1) / 2;
+        while chunk >= 1 {
+            let mut i = 0;
+            while i < current.len() {
+                let end = (i + chunk).min(current.len());
+                let mut candidate: Vec<I> = Vec::with_capacity(current.len());
+                candidate.extend_from_slice(&current[..i]);
+                candidate.extend_from_slice(&current[end..]);
+                attempts += 1;
+                if still_fails(&candidate) {
+                    current = candidate;
+                    // Restart the scan at the same index with the shorter
+                    // sequence, easing off the chunk size.
+                    chunk = ((chunk * 3) / 4).max(1);
+                } else {
+                    i += 1;
                 }
-            } else {
-                i += 1;
             }
+            if chunk == 1 && current.len() <= 1 {
+                break;
+            }
+            chunk /= 2;
         }
-        if chunk == 1 && current.len() <= 1 {
+        if current.len() == len_before || current.len() <= 1 {
             break;
         }
-        chunk /= 2;
     }
 
     let minimal_len = current.len();
@@ -126,5 +132,33 @@ mod tests {
     fn empty_input_is_fine() {
         let (minimal, _) = shrink::<usize, _>(&[], |_| false);
         assert!(minimal.is_empty());
+    }
+
+    #[test]
+    fn removes_paired_inputs_that_are_only_legal_together() {
+        // Fails on "lock, unlock" at the end; "open, close" pairs are noise
+        // that can only be removed as a pair (removing one half makes the
+        // sequence illegal, which does not reproduce the failure).
+        let legal = |seq: &[&str]| {
+            let mut open = false;
+            for x in seq {
+                match *x {
+                    "open" if !open => open = true,
+                    "close" if open => open = false,
+                    "open" | "close" => return false,
+                    _ => {}
+                }
+            }
+            true
+        };
+        let input = ["open", "close", "lock", "open", "close", "unlock"];
+        let (minimal, _) = shrink(&input, |seq| {
+            legal(seq)
+                && seq
+                    .iter()
+                    .position(|x| *x == "lock")
+                    .is_some_and(|l| seq[l + 1..].contains(&"unlock"))
+        });
+        assert_eq!(minimal, vec!["lock", "unlock"]);
     }
 }

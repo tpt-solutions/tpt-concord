@@ -27,6 +27,8 @@ All notable changes to TPT Concord are recorded here. Format follows
   the same model, so it could never fail yet reported `fuzz_tested`. It now
   labels that mode `model-self-check` (not evidence) unless `--impl` is given.
 - Fuzz campaigns no longer report the same minimized failure once per seed.
+- The shrinker now repeats its passes until nothing more can be removed, so
+  inputs that are only legal as a pair (e.g. open/close) are minimized fully.
 
 ## [0.1.0] — 2026-10-05
 

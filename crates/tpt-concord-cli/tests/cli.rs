@@ -399,7 +399,7 @@ fn init_scaffolds_a_project_that_passes_its_own_walkthrough() {
     ]);
     assert_eq!(code, 1, "buggy impl must be caught: {out}");
     // Identical minimized failures are reported once, not once per seed.
-    assert!(out.matches("\"seed\"").count() <= 3, "{out}");
+    assert_eq!(out.matches("\"seed\"").count(), 1, "{out}");
 
     let bundle = f("evidence");
     let (code, out) = run(&[
