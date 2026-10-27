@@ -1,0 +1,76 @@
+Design Update Spec: tpt-concord (Decision-Evidence Schema & Audit Ledger)
+This document is formatted to be dropped directly into your tpt-concord/spec.txt or as a standalone design-doc.md update. It implements the P1 evidence and provenance priorities from the audit, replacing the need for a separate tpt-provenance repository.
+Design Update: Decision-Evidence Schema and Tamper-Evident Audit Ledger
+Repository: tpt-concord
+Priority: P1 — Cross-ecosystem interoperability & Auditability
+Status: Draft / Pending Implementation
+1. Context & Objective
+In high-stakes domains (healthcare, aviation, finance), "the AI did it" is not an acceptable answer when things go wrong. Regulators and auditors require proof of why a decision was made, what state it was based on, and whether the enforcement boundaries (tpt-norma, tpt-writ) were actually respected.
+tpt-concord serves as the immutable audit ledger for the entire TPT ecosystem. Its objective is to record the complete lifecycle of every significant decision—from proposal to verification to execution—creating a tamper-evident chain of custody. This update extends tpt-concord to become the single source of truth for system provenance, replacing the conceptual need for a separate tpt-provenance repository.
+2. Workspace & Crate Layout
+Extend the existing workspace to separate the schema definitions from the storage and chain-integrity logic:
+Crate
+Responsibility
+tpt-concord-core
+Schema definitions for DecisionRecord, EvidenceRef, ExecutionRef, and versioned policy references.
+tpt-concord-chain
+Hash chain logic, digest calculation, and tamper-evidence verification.
+tpt-concord-store
+Append-only storage interface (abstraction over local file, SQLite, or distributed ledger).
+tpt-concord-audit
+High-level API for recording decisions and querying the audit trail.
+3. Core Interface Additions
+The following Rust API shapes define the evidence schema. This crate relies heavily on identifiers and digests from tpt-uir and tpt-primitives.
+
+/// The canonical record of a single decision and its outcome.
+pub struct DecisionRecord {
+    pub decision_id: DecisionId,
+    pub action_digest: ActionDigest,          // From tpt-uir
+    pub input_snapshot_ref: SnapshotRef,      // Reference to the state version used
+    pub policy_ref: PolicyRef,                // Policy ID and version
+    pub verifier_ref: VerifierRef,            // Verifier identity and version
+    pub verdict: Verdict,                     // Allow, Deny, Indeterminate
+    pub evidence_refs: Vec<EvidenceRef>,      // Proof certificates, violations, etc.
+    pub execution_ref: Option<ExecutionRef>,  // Result of the authorized execution (from tpt-writ)
+    pub previous_record_digest: Option<Digest>, // Link to the preceding record (hash chain)
+    pub timestamp: MonotonicClock,            // Event time (strictly monotonic)
+    pub signature_ref: Option<SignatureRef>,  // Optional authenticated signer
+}
+
+pub trait AuditLedger {
+    /// Appends a new record to the ledger. 
+    /// MUST fail if the previous_record_digest does not match the current chain tip.
+    fn append_record(&mut self, record: DecisionRecord) -> Result<(), LedgerError>;
+
+    /// Verifies the integrity of the entire chain from genesis to current tip.
+    fn verify_chain_integrity(&self) -> Result<(), IntegrityError>;
+
+    /// Detects gaps in the sequence (e.g., missing record IDs).
+    fn detect_gaps(&self) -> Vec<GapReport>;
+}
+
+4. Strict Invariants & Safety Guarantees
+The implementation must enforce the following invariants to ensure the audit trail is legally and technically defensible:
+Append-Only Immutability: Once a record is committed to the store, it cannot be modified or deleted. Any attempt to alter a past record must break the hash chain and be detected immediately.
+Chain Integrity: Every record (except the genesis record) must contain the digest of the immediately preceding record. This creates a tamper-evident chain.
+Completeness of Execution: Every record with a verdict of Allow must eventually be updated with an execution_ref (or explicitly marked as failed/expired). An Allow without a corresponding execution record is an audit anomaly.
+Gap Detection: The system must maintain a monotonic sequence counter. If a record is missing from the sequence, the system must flag a GapReport.
+No Implicit Success: A missing record is not evidence that an action didn't happen; it is evidence of a logging failure. The system must distinguish between "proven denial" and "no record found."
+5. Acceptance Tests (Definition of Done)
+The following tests must pass in CI to prove the audit ledger is secure and reliable:
+Positive: Append 1,000 records. Verify the chain integrity passes.
+Negative (Tampering): Manually edit a byte in record #500. The verify_chain_integrity() check must fail for record #501 onwards.
+Negative (Reordering): Attempt to append a record with a previous_record_digest that does not match the current tip. The append must fail.
+Negative (Gap Detection): Insert records with IDs 1, 2, 4 (skipping 3). The detect_gaps() function must return a report indicating record 3 is missing.
+Audit Anomaly: Create an Allow record but never update it with an execution_ref. The audit system flags this as an "unresolved execution" anomaly.
+Redaction Test: Verify that sensitive fields (e.g., patient PII) can be redacted from the payload without breaking the chain integrity (using zero-knowledge proofs or separate encrypted envelopes if required, or simply acknowledging that redaction breaks the specific record's hash but not the chain link).
+6. Storage & Deployment Strategy
+Phase 1 (Local/Single Node): Use an append-only local file or SQLite database. The hash chain provides tamper evidence.
+Phase 2 (Multi-Node/Distributed): If multiple organizations need to share the audit trail (e.g., a hospital and an insurance provider), integrate with a distributed ledger or consensus mechanism. However, do not introduce Cosmos SDK or heavy blockchain infrastructure unless a real multi-organization trust requirement justifies the cost.
+Log Anchoring: Periodically anchor the chain tip to an external, immutable source (e.g., a public blockchain, a notary service, or a secure enterprise log) to prove the ledger existed at a specific point in time.
+7. Dependencies & Contracts
+Requires: tpt-uir (for ActionDigest and SnapshotRef definitions).
+Requires: tpt-primitives (for DecisionId, PolicyRef, VerifierRef).
+Requires: tpt-crypto (for hashing and signature primitives).
+Consumes from: tpt-norma (verdict, evidence), tpt-writ (execution result).
+Provides to: External Auditors, Regulators, and the tpt-assurance-harness (for replaying historical decisions).
